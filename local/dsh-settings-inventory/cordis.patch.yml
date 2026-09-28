@@ -1,0 +1,8 @@
+# The skills/MCP inventory bundle patch: one Host row. Its browser half is the
+# package's `./client` export, which the modules node half scans into the boot
+# graph from this row's package name, so the two Settings pages need no second
+# row. The Host row owns the read-only projections and the authenticated route
+# the pages fetch them from.
+- insert:
+    - id: dsh-settings-inventory
+      name: '@local/dsh-settings-inventory'

@@ -1,0 +1,16 @@
+# Verification overlay for the skills/MCP inventory pages: mounts one MCP server
+# row under a distinct entry id and serverName so the MCP page has a real server
+# to project. Applied with `--patch`; never part of the installed bundle.
+- insert:
+    - id: mcp-inventory-fixture
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: inventoryfixture
+        command: node
+        args:
+          - D:/ProgramFiles/HarnessProject/deepseek-harness/local/dsh-settings-inventory/fixture-mcp-server.mjs
+        env:
+          FIXTURE_API_KEY: fixture-value
+        toolCallTimeoutMs: 30000
+        failOnStartupError: true

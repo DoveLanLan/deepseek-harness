@@ -1,0 +1,32 @@
+{
+  "name": "@local/dsh-settings-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Two read-only Settings pages listing the skills and MCP servers this deployment installs",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-app-boot": "workspace:*"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT"
+}
