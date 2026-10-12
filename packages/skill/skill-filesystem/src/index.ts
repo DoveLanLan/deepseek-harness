@@ -9,6 +9,7 @@
  * @module @deepseek-ai/dsh-skill-filesystem
  */
 
+import { createHash } from 'node:crypto'
 import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -34,6 +35,7 @@ import {
 
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
+const PROJECT_CUSTOM_RANK = 250
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
@@ -54,6 +56,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Additional skill roots resolved against the project root, scanned after the default project roots and before custom roots. */
+  projectSkillDirs?: string[]
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -77,6 +81,7 @@ export const Config: Schema<Config> = z.object({
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
+  projectSkillDirs: z.array(z.string()).default([]),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -120,6 +125,12 @@ interface LocalLocator {
   directory: string
 }
 
+/** One discovered candidate plus the digest of the definition it stands for. */
+interface DiscoveredSkill {
+  candidate: SkillCandidate
+  digest: string
+}
+
 interface ResolvedWatchConfig {
   enabled: boolean
   usePolling: boolean
@@ -151,6 +162,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
+  private readonly projectSkillDirs: string[]
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
@@ -165,6 +177,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolveAgentsHome(config.agentsHome)
+    this.projectSkillDirs = config.projectSkillDirs ?? []
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
@@ -179,8 +192,10 @@ export class FileSystemSkillProvider implements SkillProvider {
   /**
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
-   * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation.
+   * @returns local provider candidates with stable root ranks, same-name
+   *   definitions that match collapsed to their highest-precedence occurrence;
+   *   watcher startup failure returns readable candidates as an incomplete
+   *   observation.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
@@ -191,12 +206,11 @@ export class FileSystemSkillProvider implements SkillProvider {
       if (this.disposal !== undefined) throw error
       complete = false
     }
-    const candidates: SkillCandidate[] = []
+    const discovered: DiscoveredSkill[] = []
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
-        candidates.push(skill)
-      }
+      discovered.push(...await discoverRoot(root, this.ctx, this.name))
     }
+    const candidates = collapseIdenticalCandidates(discovered)
     return complete ? candidates : { candidates, complete }
   }
 
@@ -243,12 +257,24 @@ export class FileSystemSkillProvider implements SkillProvider {
 
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
-    if (this.includeDefaultRoots && cwd !== undefined) {
-      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
+    const projectRoot = cwd !== undefined && (this.includeDefaultRoots || this.projectSkillDirs.length > 0)
+      ? await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
+      : undefined
+    if (projectRoot !== undefined && this.includeDefaultRoots) {
       roots.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
       )
+    }
+    if (projectRoot !== undefined) {
+      for (const dir of this.projectSkillDirs) {
+        roots.push({
+          path: resolve(projectRoot, dir),
+          source: 'project-custom',
+          rank: PROJECT_CUSTOM_RANK,
+          projectRoot,
+        })
+      }
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
     if (this.includeDefaultRoots) {
@@ -260,7 +286,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     if (this.bundledSkillDir !== undefined) {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
-    return roots
+    return dedupeRoots(roots)
   }
 }
 
@@ -727,8 +753,8 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
-async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
-  const skills: SkillCandidate[] = []
+async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<DiscoveredSkill[]> {
+  const skills: DiscoveredSkill[] = []
   const entries = await listSkillRootEntries(root, ctx)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (root.skipSystem && entry.name === '.system') continue
@@ -741,20 +767,61 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
     const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
     if (parsed === undefined) continue
     skills.push({
-      name: parsed.name,
-      description: parsed.description,
-      ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      invocation: parsed.invocation,
-      provider,
-      source: root.source,
-      rank: root.rank,
-      locator,
-      resourceBase: { kind: 'directory', path: locator.directory },
-      path: parsed.path,
-      ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
+      candidate: {
+        name: parsed.name,
+        description: parsed.description,
+        ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
+        invocation: parsed.invocation,
+        provider,
+        source: root.source,
+        rank: root.rank,
+        locator,
+        resourceBase: { kind: 'directory', path: locator.directory },
+        path: parsed.path,
+        ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
+      },
+      digest: skillDigest(parsed),
     })
   }
   return skills
+}
+
+/**
+ * Digest the fields that decide how a skill behaves: its catalog description
+ * and routing hint, its invocation controls, and its instruction body.
+ * Frontmatter the model never sees — `metadata`, key order, quoting, and
+ * surrounding whitespace — does not separate two definitions.
+ * @param parsed - the parsed skill file backing one candidate.
+ * @returns a stable hex digest of this candidate's definition.
+ */
+function skillDigest(parsed: ParsedSkill): string {
+  return createHash('sha256').update(JSON.stringify([
+    parsed.description,
+    parsed.whenToUse ?? null,
+    parsed.invocation.modelInvocable,
+    parsed.invocation.userInvocable,
+    parsed.content,
+  ])).digest('hex')
+}
+
+/**
+ * Collapse same-name candidates whose definitions match, keeping the first —
+ * the highest-precedence root — so mirror roots holding one skill contribute a
+ * single catalog entry and no duplicate warning. A name whose definitions
+ * differ keeps every candidate, and the registry reports the shadowed ones.
+ * @param discovered - every candidate this provider's roots produced, in root order.
+ * @returns the candidates to publish, with matching same-name repeats dropped.
+ */
+function collapseIdenticalCandidates(discovered: readonly DiscoveredSkill[]): SkillCandidate[] {
+  const winnerDigests = new Map<string, string>()
+  const candidates: SkillCandidate[] = []
+  for (const { candidate, digest } of discovered) {
+    const winner = winnerDigests.get(candidate.name)
+    if (winner === digest) continue
+    if (winner === undefined) winnerDigests.set(candidate.name, digest)
+    candidates.push(candidate)
+  }
+  return candidates
 }
 
 async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<SkillRootEntry[]> {
@@ -947,6 +1014,26 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
     if (nextNewline < 0) return undefined
     lineStart = nextNewline + 1
   }
+}
+
+/**
+ * Drop repeated roots so one directory configured twice as the same absolute
+ * path — a project-relative entry and an absolute one, say — contributes its
+ * catalog once. Roots are pushed in precedence order, so the first occurrence
+ * wins and a later duplicate never shadows it. Symbolic-link aliases stay
+ * distinct; discovery keeps the configured spelling.
+ * @param roots - the candidate roots in precedence order.
+ * @returns the roots with later repeats of an earlier path removed.
+ */
+function dedupeRoots(roots: readonly SkillRoot[]): SkillRoot[] {
+  const seen = new Set<string>()
+  const unique: SkillRoot[] = []
+  for (const root of roots) {
+    if (seen.has(root.path)) continue
+    seen.add(root.path)
+    unique.push(root)
+  }
+  return unique
 }
 
 async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {

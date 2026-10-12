@@ -37,7 +37,7 @@ export function isSkillName(name: string): boolean {
 }
 
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
+export type SkillSource = 'project-dsh' | 'project-agents' | 'project-custom' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
 
 /** Optional provider-specific base used by loaded skill bodies to resolve relative resources. */
 export type SkillResourceBase =
@@ -567,15 +567,16 @@ export class SkillRegistry extends Service {
   private async collectLayer(layer: SkillLayer, options: SkillLookupOptions): Promise<LayerCollectResult> {
     const collected = await this.listLayerCandidates(layer, options)
     collected.entries.sort(compareIndexedCandidates)
-    const seen = new Set<string>()
+    const seen = new Map<string, IndexedCandidate>()
     const result: IndexedCandidate[] = []
     for (const entry of collected.entries) {
       const skill = entry.candidate
-      if (seen.has(skill.name)) {
-        this.ctx.logger.warn(`skill "${skill.name}" from ${skill.source} ignored because a higher-priority skill already exists`)
+      const winner = seen.get(skill.name)
+      if (winner !== undefined) {
+        this.ctx.logger.warn(`skill "${skill.name}" at ${skillLocation(skill)} ignored because a higher-priority skill already exists at ${skillLocation(winner.candidate)}`)
         continue
       }
-      seen.add(skill.name)
+      seen.set(skill.name, entry)
       result.push(entry)
     }
     return { entries: result, cacheable: collected.cacheable }
@@ -808,6 +809,17 @@ function compareIndexedCandidates(left: IndexedCandidate, right: IndexedCandidat
   return left.candidate.rank - right.candidate.rank
     || left.providerOrder - right.providerOrder
     || left.localOrder - right.localOrder
+}
+
+/**
+ * Name where one candidate came from for a shadowing diagnostic: its
+ * instruction file when the provider supplied a path, otherwise the source and
+ * provider that produced it.
+ * @param skill - the shadowed or winning candidate summary.
+ * @returns the skill's file path, or a `source (provider)` label without one.
+ */
+function skillLocation(skill: SkillSummary): string {
+  return skill.path ?? `${skill.source} (${skill.provider})`
 }
 
 function assertPositiveInteger(name: string, value: number, minimum = 1): void {

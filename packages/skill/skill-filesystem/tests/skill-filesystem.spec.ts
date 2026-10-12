@@ -218,6 +218,126 @@ describe('FileSystemSkillProvider', () => {
     expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('fallback-root')
   })
 
+  it('discovers project-relative skill roots below the default project roots', async () => {
+    const home = await tempDir('skill-project-extra-home')
+    const project = await tempDir('skill-project-extra')
+    await mkdir(join(project, '.git'), { recursive: true })
+
+    await writeSkill(join(project, '.agents/skills'), 'same', 'Project agents skill')
+    await writeSkill(join(project, '.claude/skills'), 'same', 'Claude skill')
+    await writeSkill(join(project, '.claude/skills'), 'claude-only', 'Claude only')
+    await writeSkill(join(project, '.codex/skills'), 'codex-only', 'Codex only')
+
+    const ctx = await setupLocal(home, {
+      projectSkillDirs: [join(project, '.claude/skills'), '.codex/skills'],
+    })
+    const skills = await ctx.skills.list({ cwd: join(project, 'src') })
+
+    expect(skills.find(skill => skill.name === 'same')?.description).toBe('Project agents skill')
+    expect(skills.find(skill => skill.name === 'same')?.source).toBe('project-agents')
+    expect(skills.find(skill => skill.name === 'claude-only')).toMatchObject({ source: 'project-custom' })
+    expect(skills.find(skill => skill.name === 'codex-only')).toMatchObject({ source: 'project-custom' })
+    expect((await ctx.skills.get('codex-only', { cwd: project }))?.content).toBe('Use the skill.')
+
+    const noGit = await tempDir('skill-project-extra-no-git')
+    await writeSkill(join(noGit, '.codex/skills'), 'cwd-fallback', 'No git ancestor')
+    expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('cwd-fallback')
+  })
+
+  it('resolves one project-relative root to one directory whichever spelling repeats it', async () => {
+    const home = await tempDir('skill-project-dedupe-home')
+    const project = await tempDir('skill-project-dedupe')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.codex/skills'), 'deduped', 'Scanned once')
+
+    const ctx = await setupLocal(home, {
+      projectSkillDirs: ['.codex/skills'],
+      customSkillDirs: [join(project, '.codex/skills')],
+    })
+    const skills = await ctx.skills.list({ cwd: project })
+
+    expect(skills.filter(skill => skill.name === 'deduped')).toHaveLength(1)
+    expect(skills.find(skill => skill.name === 'deduped')?.source).toBe('project-custom')
+  })
+
+  it('keeps configured root order as the tiebreak between project-relative roots', async () => {
+    const home = await tempDir('skill-project-order-home')
+    const project = await tempDir('skill-project-order')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.codex/skills'), 'shared', 'Codex first')
+    await writeSkill(join(project, '.claude/skills'), 'shared', 'Claude second')
+
+    const ctx = await setupLocal(home, { projectSkillDirs: ['.codex/skills', '.claude/skills'] })
+
+    expect((await ctx.skills.list({ cwd: project })).find(skill => skill.name === 'shared')?.description)
+      .toBe('Codex first')
+  })
+
+  it('resolves project-relative roots for an isolated provider with no default roots', async () => {
+    const home = await tempDir('skill-project-isolated-home')
+    const project = await tempDir('skill-project-isolated')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.dsh/skills'), 'dsh-only', 'Default project root')
+    await writeSkill(join(project, '.codex/skills'), 'codex-only', 'Configured project root')
+    await writeSkill(join(home, '.agents/skills'), 'user-only', 'User root')
+
+    const ctx = await setupLocal(home, {
+      includeDefaultRoots: false,
+      projectSkillDirs: ['.codex/skills'],
+    })
+
+    expect((await ctx.skills.list({ cwd: project })).map(skill => skill.name)).toEqual(['codex-only'])
+  })
+
+  it('collapses same-name skills whose definitions match, keeping the first root', async () => {
+    const home = await tempDir('skill-mirror-home')
+    const project = await tempDir('skill-mirror')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.codex/skills'), 'mirrored', 'One definition', 'One body.')
+    // Frontmatter the model never reads does not separate two mirrored files.
+    await mkdir(join(project, '.claude/skills/mirrored'), { recursive: true })
+    await writeFile(join(project, '.claude/skills/mirrored/SKILL.md'), [
+      '---',
+      'name: mirrored',
+      'description: One definition',
+      'metadata:',
+      '  owner: claude',
+      '---',
+      '',
+      'One body.',
+    ].join('\n'))
+
+    const ctx = await setupLocal(home, { projectSkillDirs: ['.codex/skills', '.claude/skills'] })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    const skills = await ctx.skills.list({ cwd: project })
+    expect(skills.filter(skill => skill.name === 'mirrored')).toHaveLength(1)
+    expect(skills.find(skill => skill.name === 'mirrored')?.path)
+      .toBe(await realpath(join(project, '.codex/skills/mirrored/SKILL.md')))
+    expect(warnings).toEqual([])
+  })
+
+  it('keeps diverging same-name skills so the registry reports the shadowed file', async () => {
+    const home = await tempDir('skill-diverged-home')
+    const project = await tempDir('skill-diverged')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.codex/skills'), 'diverged', 'Shared description', 'Codex body.')
+    await writeSkill(join(project, '.claude/skills'), 'diverged', 'Shared description', 'Claude body.')
+
+    const ctx = await setupLocal(home, { projectSkillDirs: ['.codex/skills', '.claude/skills'] })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    const skills = await ctx.skills.list({ cwd: project })
+    expect(skills.map(skill => skill.name)).toEqual(['diverged'])
+    expect((await ctx.skills.get('diverged', { cwd: project }))?.content).toBe('Codex body.')
+    expect(warnings).toEqual([
+      `skill "diverged" at ${await realpath(join(project, '.claude/skills/diverged/SKILL.md'))}`
+      + ` ignored because a higher-priority skill already exists at ${await realpath(join(project, '.codex/skills/diverged/SKILL.md'))}`,
+    ])
+  })
+
   it('lets project skills override runtime while runtime overrides custom and user skills', async () => {
     const home = await tempDir('skill-runtime-priority')
     const project = await tempDir('skill-runtime-project')

@@ -160,6 +160,22 @@ describe('SkillRegistry registry', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
   })
 
+  it('locates a shadowed duplicate by instruction file, falling back to source and provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    registerProvider(ctx, new MemoryProvider([
+      { ...memorySkill('shadowed', 'Winner', 10), path: '/skills/a/shadowed/SKILL.md' },
+      { ...memorySkill('shadowed', 'Loser', 20), source: 'mirror' },
+    ]))
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shadowed'])
+    expect(warnings).toEqual([
+      'skill "shadowed" at mirror (memory) ignored because a higher-priority skill already exists at /skills/a/shadowed/SKILL.md',
+    ])
+  })
+
   it('returns an invocation-neutral catalog and resolves model and user policy independently', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)

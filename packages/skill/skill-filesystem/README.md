@@ -49,11 +49,12 @@ Default roots are scanned in this provider's rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 250 | `project-custom` | `Config.projectSkillDirs`, resolved against `<projectRoot>` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. A root configured twice as the same absolute path is scanned once, at its first, higher-precedence occurrence. Same-name definitions that match on description, `whenToUse`, invocation, and body collapse to the highest-precedence root and produce no duplicate report; definitions that differ are all published, and the registry keeps the winner and names both files. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the `.dsh`/`.agents` project rows, the user rows, and the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots, `projectSkillDirs` included; `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -67,9 +68,10 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | Field | Default | Meaning |
 |---|---|---|
 | `providerName` | `filesystem` | Unique provider name registered on `ctx.skills` |
-| `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
+| `includeDefaultRoots` | `true` | Include the default project and user roots around the configured roots |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
+| `projectSkillDirs` | `[]` | Additional skill roots resolved against the project root, after the default project roots and before custom roots |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |

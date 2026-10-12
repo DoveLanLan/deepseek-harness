@@ -49,11 +49,12 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 250 | `project-custom` | `Config.projectSkillDirs`，相对 `<projectRoot>` 解析 |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个随包提供的根目录。
+项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。同一根目录以同一个绝对路径被配置两次时只扫描一次，保留其首次出现、优先级更高的那次。同名定义在 description、`whenToUse`、invocation 与正文上一致时，会合并到优先级最高的那个根，不产生重复报告；定义不一致时会全部发布，由注册表保留胜者并在告警中给出两个文件。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略 `.dsh`/`.agents` 项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根（含 `projectSkillDirs`）；`bundledSkillDir` 会按 rank 600 添加一个随包提供的根目录。
 
 ### 挂载与配置
 
@@ -67,9 +68,10 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `providerName` | `filesystem` | 注册到 `ctx.skills` 的唯一提供方名称 |
-| `includeDefaultRoots` | `true` | 在 `customSkillDirs` 周围包含项目根与用户根 |
+| `includeDefaultRoots` | `true` | 在已配置的根周围包含默认的项目根与用户根 |
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Harness 配置根目录；扫描其 `skills` 子目录 |
 | `agentsHome` | `$DSH_AGENTS_HOME` 或 `~/.agents` | 为兼容 skill 扫描的共享 agent 配置根目录 |
+| `projectSkillDirs` | `[]` | 相对项目根解析的其他 skill 根目录，位于默认项目根之后、custom 根之前 |
 | `customSkillDirs` | `[]` | 其他本地 skill 根目录，位于项目根之后、用户根之前 |
 | `watch` | `true` | 监视本地根，并在目录可能变化时使提供方失效 |
 | `bundledSkillDir` | — | 配置后按 rank 600 扫描的随包提供的 skill 根目录 |
