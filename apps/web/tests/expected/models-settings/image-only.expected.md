@@ -47,6 +47,7 @@
             - /placeholder: 显示名称
           - button "模型选项 1" [expanded]
           - button "删除模型 1"
+          - button "测试模型 1"
           - text: 上下文窗口
           - textbox "上下文窗口 1":
             - /placeholder: 256K
