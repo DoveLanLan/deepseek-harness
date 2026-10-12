@@ -298,6 +298,11 @@ export interface LlmModelDiscoveryOperation extends LlmModelDiscoveryRequest {
   signal?: AbortSignal
 }
 
+/** Outcome of one registered provider/model connectivity checkout. */
+export type LlmTestModelResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string }
+
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** A draft provider interrogation refused or failed. */

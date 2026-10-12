@@ -1273,7 +1273,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'runExclusive<T>(operation: () => Promise<T>): Promise<T>',
-        description: 'Serialize a caller-owned mutation with all automatic reload paths.',
+        description: 'Serialize a caller-owned mutation with all automatic reload paths.\n\nOnly a call made inside the transaction currently holding the queue is a nested transaction: that caller\'s transaction is the queue tail it would wait behind. A caller that merely inherits the context of a finished transaction — a timer, watcher, or listener created while one ran, such as a request listener restarted during a profile reload — queues normally.',
         parameters: [{ name: 'operation', description: 'Work that must not overlap module or configuration replacement.' }],
         returns: 'The operation result after its asynchronous work completes.',
       },
@@ -1451,6 +1451,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'settingsNs', description: 'namespace whose registered discovery serves this draft.' }, { name: 'request', description: 'endpoint, protocol, and one-shot credential to use.' }, { name: 'signal', description: 'caller cancellation supplied by the Remote carrier.' }],
         returns: 'advertised models in endpoint order.',
         throws: ['RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.'],
+      },
+      {
+        signature: 'async testModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmTestModelResult>',
+        description: 'Verify one registered provider/model pair can serve a minimal request. The test streams a tiny, uninteresting completion through the owning adapter, exercising endpoint, authentication, protocol, and model gating with the route\'s configured credential. It never writes settings, history, or any other durable state, and it requires neither an agent nor a session.',
+        parameters: [{ name: 'provider', description: 'registered provider route to test.' }, { name: 'model', description: 'exact model id to test.' }, { name: 'signal', description: 'caller cancellation, forwarded to the request.' }],
+        returns: 'ok, or the failure message, whether the route is unknown, the credential is missing, or the upstream refuses the model.',
+      },
+      {
+        signature: '@Remote(\'testModel\') remoteTestModel( provider: string, model: string, signal: AbortSignal, ): Promise<LlmTestModelResult>',
+        description: 'Remote adapter for one registered model connectivity test. Every refusal is carried by the result, so a caller renders an outcome rather than catching one.',
+        parameters: [{ name: 'provider', description: 'registered provider route to test.' }, { name: 'model', description: 'exact model id to test.' }, { name: 'signal', description: 'caller cancellation supplied by the Remote carrier.' }],
+        returns: 'the connectivity outcome.',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -5835,7 +5847,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmRuntime',
-    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall): Promise<PreparedLlmCall>;\n    strea /* …truncated — full shape in source */',
+    declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    async testModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmTestModelResult>;\n    @Remote(\'testModel\')\n    remoteTestModel(provider: string, model: string, signal: AbortSignal): Promise<LlmTestModelResult>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelI /* …truncated — full shape in source */',
+  },
+  {
+    name: 'LlmTestModelResult',
+    declaration: 'export type LlmTestModelResult = {\n    readonly ok: true;\n} | {\n    readonly ok: false;\n    readonly message: string;\n};',
   },
   {
     name: 'LocalAtInput',
@@ -7395,7 +7411,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSource',
-    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
+    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'project-custom\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
   },
   {
     name: 'SkillSummary',

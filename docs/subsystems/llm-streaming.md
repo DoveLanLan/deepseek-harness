@@ -1016,6 +1016,31 @@ async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, sig
 @Remote('discoverModels') async remoteDiscoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal, ): Promise<LlmDiscoveredModel[]>
 
 /**
+ * Verify one registered provider/model pair can serve a minimal request.
+ * The test streams a tiny, uninteresting completion through the owning
+ * adapter, exercising endpoint, authentication, protocol, and model gating
+ * with the route's configured credential. It never writes settings, history,
+ * or any other durable state, and it requires neither an agent nor a session.
+ * @param provider - registered provider route to test.
+ * @param model - exact model id to test.
+ * @param signal - caller cancellation, forwarded to the request.
+ * @returns ok, or the failure message, whether the route is unknown, the
+ *   credential is missing, or the upstream refuses the model.
+ */
+async testModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmTestModelResult>
+
+/**
+ * Remote adapter for one registered model connectivity test. Every refusal
+ * is carried by the result, so a caller renders an outcome rather than
+ * catching one.
+ * @param provider - registered provider route to test.
+ * @param model - exact model id to test.
+ * @param signal - caller cancellation supplied by the Remote carrier.
+ * @returns the connectivity outcome.
+ */
+@Remote('testModel') remoteTestModel( provider: string, model: string, signal: AbortSignal, ): Promise<LlmTestModelResult>
+
+/**
  * Resolve the retry policy captured when one provider route was registered.
  * @param provider - registered provider route to inspect.
  * @returns the provider-owned policy, with normal defaults already resolved.

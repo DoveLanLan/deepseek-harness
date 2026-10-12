@@ -21,13 +21,15 @@ import type {
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
+  LlmTestModelResult,
   ModelModality,
   StreamChunk,
   SystemPromptUpdate,
   ToolSchema,
   ToolUpdate,
+  FinishReason,
 } from './types.ts'
-import { freezeMessage } from './message.ts'
+import { createUserMessage, freezeMessage } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
@@ -649,6 +651,69 @@ export class LlmRuntime extends TypertRemoteService {
   }
 
   /**
+   * Verify one registered provider/model pair can serve a minimal request.
+   * The test streams a tiny, uninteresting completion through the owning
+   * adapter, exercising endpoint, authentication, protocol, and model gating
+   * with the route's configured credential. It never writes settings, history,
+   * or any other durable state, and it requires neither an agent nor a session.
+   * @param provider - registered provider route to test.
+   * @param model - exact model id to test.
+   * @param signal - caller cancellation, forwarded to the request.
+   * @returns ok, or the failure message, whether the route is unknown, the
+   *   credential is missing, or the upstream refuses the model.
+   */
+  async testModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmTestModelResult> {
+    try {
+      // Fail loud on an unregistered route instead of reporting a stream error.
+      this.registration(provider)
+      let reason: FinishReason | undefined
+      const stream = this.stream({
+        provider,
+        model,
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: MODEL_TEST_PROMPT }],
+          source: { kind: 'user' },
+        })],
+        maxTokens: MODEL_TEST_MAX_TOKENS,
+        ...signal === undefined ? {} : { signal },
+      })
+      for await (const chunk of stream) {
+        if (chunk.type === 'finish') {
+          reason = chunk.reason
+          break
+        }
+      }
+      if (reason === undefined) {
+        return { ok: false, message: MODEL_TEST_NO_REPLY_MESSAGE }
+      }
+      if (reason.kind === 'error' || reason.kind === 'aborted') {
+        return { ok: false, message: reason.failure.message }
+      }
+      return { ok: true }
+    } catch (error: unknown) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /**
+   * Remote adapter for one registered model connectivity test. Every refusal
+   * is carried by the result, so a caller renders an outcome rather than
+   * catching one.
+   * @param provider - registered provider route to test.
+   * @param model - exact model id to test.
+   * @param signal - caller cancellation supplied by the Remote carrier.
+   * @returns the connectivity outcome.
+   */
+  @Remote('testModel')
+  remoteTestModel(
+    provider: string,
+    model: string,
+    signal: AbortSignal,
+  ): Promise<LlmTestModelResult> {
+    return this.testModel(provider, model, signal)
+  }
+
+  /**
    * Resolve the retry policy captured when one provider route was registered.
    * @param provider - registered provider route to inspect.
    * @returns the provider-owned policy, with normal defaults already resolved.
@@ -1180,5 +1245,12 @@ interface PreparedDispatch {
   readonly modelInfo: LlmResolvedModelInfo
   readonly dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
 }
+
+/** The trivial prompt a connectivity checkout sends; every adapter can serve it. */
+const MODEL_TEST_PROMPT = 'Reply with the single word: pong'
+/** Small output cap that keeps the checkout cheap while satisfying reasoning-first models. */
+const MODEL_TEST_MAX_TOKENS = 64
+/** Shown when a provider stream ends without a finish chunk. */
+const MODEL_TEST_NO_REPLY_MESSAGE = 'The model stream ended without a response'
 
 export default LlmRuntime
