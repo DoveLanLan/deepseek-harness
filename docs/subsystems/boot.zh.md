@@ -61,6 +61,12 @@ Hot reload service with Cordis-compatible module configuration and events.
 
 ```ts cordis-catalog
 /** Serialize a caller-owned mutation with all automatic reload paths.
+ *
+ * Only a call made inside the transaction currently holding the queue is a
+ * nested transaction: that caller's transaction is the queue tail it would
+ * wait behind. A caller that merely inherits the context of a finished
+ * transaction — a timer, watcher, or listener created while one ran, such as
+ * a request listener restarted during a profile reload — queues normally.
  * @param operation Work that must not overlap module or configuration replacement.
  * @returns The operation result after its asynchronous work completes.
  */

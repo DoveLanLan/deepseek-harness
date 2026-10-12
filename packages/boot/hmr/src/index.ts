@@ -249,21 +249,38 @@ class Hmr extends Service {
   /** Stashed file changes waiting to be processed */
   private stashed = new Set<string>()
   private operations: Promise<unknown> = Promise.resolve()
-  private readonly executing = new AsyncLocalStorage<boolean>()
+  /** Identity of the transaction holding the queue, absent while no transaction runs. */
+  private active: symbol | undefined
+  private readonly executing = new AsyncLocalStorage<symbol>()
   private applicationReady: Promise<boolean> = Promise.resolve(true)
   private closing = false
   private readonly configPaths = new Set<string>()
   private readonly manifests = new PackageManifests()
 
   /** Serialize a caller-owned mutation with all automatic reload paths.
+   *
+   * Only a call made inside the transaction currently holding the queue is a
+   * nested transaction: that caller's transaction is the queue tail it would
+   * wait behind. A caller that merely inherits the context of a finished
+   * transaction — a timer, watcher, or listener created while one ran, such as
+   * a request listener restarted during a profile reload — queues normally.
    * @param operation Work that must not overlap module or configuration replacement.
    * @returns The operation result after its asynchronous work completes.
    */
   runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.executing.getStore()) return Promise.reject(new Error('HMR transactions cannot be nested'))
+    const inherited = this.executing.getStore()
+    if (inherited !== undefined && inherited === this.active) {
+      return Promise.reject(new Error('HMR transactions cannot be nested'))
+    }
     const task = this.operations.then(async () => {
       if (this.closing) throw new Error('HMR is disposed')
-      return this.executing.run(true, operation)
+      const token = Symbol('hmr.transaction')
+      this.active = token
+      try {
+        return await this.executing.run(token, operation)
+      } finally {
+        this.active = undefined
+      }
     })
     this.operations = task.catch(() => {})
     return task
@@ -286,7 +303,7 @@ class Hmr extends Service {
     for (const path of paths) this.configPaths.add(path)
     try {
       const dispose = await this.executing.exit(() => watchExactConfig(
-        this.ownerContext, filename, this.config, () => this.runReload(refresh), () => this.executing.getStore() === true,
+        this.ownerContext, filename, this.config, () => this.runReload(refresh), () => this.executing.getStore() === this.active,
       ))
       return async () => {
         await dispose()
@@ -313,7 +330,7 @@ class Hmr extends Service {
       this.closing = true
       await this.watcher?.close()
       // A configuration reload may remove its own HMR entry.
-      if (!this.executing.getStore()) await this.operations
+      if (this.executing.getStore() !== this.active) await this.operations
       this.manifests.dispose()
     }
 

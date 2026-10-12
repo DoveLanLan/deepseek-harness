@@ -1,5 +1,7 @@
 /** Shared scheduling of caller mutations, exact-file handlers and Include refreshes. */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -57,6 +59,46 @@ it('serializes mutations, rejects nesting and keeps the queue usable after failu
   await rejection
   await second
   expect(order).toEqual([1, 2])
+})
+
+it('queues work a finished transaction only lends its context to', async () => {
+  const { hmr } = await fixture()
+  const late = Promise.withResolvers<undefined>()
+  await hmr.runExclusive(async () => {
+    // Timers, listeners and watchers created inside the transaction keep its
+    // context after it ends, and their later work is nested in nothing running.
+    setTimeout(() => {
+      void hmr.runExclusive(async () => {}).then(
+        () => { late.resolve(undefined) },
+        (error: unknown) => { late.reject(error) },
+      )
+    }, 0)
+  })
+  await expect(late.promise).resolves.toBeUndefined()
+})
+
+it('serves a request whose listener started inside a transaction', async () => {
+  const { hmr } = await fixture()
+  const server = await hmr.runExclusive(async () => {
+    const created = createServer((_request, response) => {
+      void hmr.runExclusive(async () => {}).then(
+        () => { response.writeHead(200); response.end('served') },
+        (error: unknown) => {
+          response.writeHead(500)
+          response.end(error instanceof Error ? error.message : String(error))
+        },
+      )
+    })
+    await new Promise<void>((resolve, reject) => {
+      created.once('error', reject)
+      created.listen(0, '127.0.0.1', resolve)
+    })
+    return created
+  })
+  onTestFinished(async () => { await new Promise<void>((resolve) => { server.close(() => { resolve() }) }) })
+  const address = server.address() as AddressInfo
+  const response = await fetch(`http://127.0.0.1:${address.port}/`)
+  expect(await response.text()).toBe('served')
 })
 
 it('holds configuration handlers behind configuration mutations', async () => {

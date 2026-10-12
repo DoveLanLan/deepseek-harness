@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-12-hmr-transaction-identity.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-12-hmr-transaction-identity.md
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker:
+  en: 3be7e71db953b9fc
+  zh: 063f6ba8164d33e2
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker/problem:
+  en: 707cd70578246cc7
+  zh: 0ec357c111e40d12
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker/decision:
+  en: 17a5f5d412b2d31d
+  zh: 8763cb73c9855d15
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker/alternatives-considered:
+  en: 56cfecf0ca254e61
+  zh: 6c80f928002eca8a
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker/consequences:
+  en: 730f6a89fe20b51a
+  zh: 15a6b0c685ec9f73
+/agent-note-an-hmr-transaction-rejects-by-identity-not-by-an-inherited-marker/testing:
+  en: f125b6fbfc85bc06
+  zh: 3a4fb4b828af59fe
