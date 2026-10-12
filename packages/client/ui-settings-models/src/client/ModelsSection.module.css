@@ -465,9 +465,27 @@
 
 .modelRow {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 6px;
+}
+
+/* The checkout reads its outcome under the row instead of inside the glyph;
+   the spinner is the one motion the row has. */
+.modelTestSpinning {
+  animation: modelTestSpin 1s linear infinite;
+}
+
+@keyframes modelTestSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modelTestStatus {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Square, label-free affordances: the row's own inputs carry the meaning, so

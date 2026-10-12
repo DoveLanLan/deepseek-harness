@@ -23,6 +23,14 @@ import type { ModelsOperations } from './operations.ts'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { en } from './locales.ts'
 import { ModelRow } from './ModelRow.tsx'
+import type { ModelRowTest } from './ModelRow.tsx'
+
+/** The checkout state one model row keeps while its test runs and after it settles. */
+interface ModelTestState {
+  readonly state: 'testing' | 'ok' | 'failed'
+  readonly seconds: number
+  readonly message?: string
+}
 import styles from './ModelsSection.module.css'
 
 /**
@@ -206,6 +214,49 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     return next
   }
 
+  /** Checkout state per tested model id, so a row reads its own entry. */
+  const [tests, setTests] = useState<ReadonlyMap<string, ModelTestState>>(new Map())
+
+  const reportTest = (modelId: string, next: ModelTestState): void => {
+    setTests(current => new Map(current).set(modelId, next))
+  }
+
+  const runTest = (provider: string, modelId: string): void => {
+    reportTest(modelId, { state: 'testing', seconds: 0 })
+    const startedAt = Date.now()
+    void operations.testModel(provider, modelId).then(
+      (outcome) => {
+        reportTest(modelId, outcome.kind === 'ok'
+          ? { state: 'ok', seconds: (Date.now() - startedAt) / 1000 }
+          : { state: 'failed', seconds: 0, message: outcome.message })
+      },
+      (error: unknown) => {
+        reportTest(modelId, {
+          state: 'failed',
+          seconds: 0,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      },
+    )
+  }
+
+  /** Checkout wiring for one row; absent while the route itself is unsaved. */
+  const testPropOf = (model: ModelDraft): ModelRowTest | undefined => {
+    const provider = probe.provider
+    if (provider === undefined) return undefined
+    const modelId = textOf(model, 'id')
+    const entry = tests.get(modelId)
+    return {
+      state: entry?.state ?? 'idle',
+      model: modelId,
+      seconds: entry?.seconds ?? 0,
+      ...entry?.message === undefined ? {} : { message: entry.message },
+      disabled: disabled || modelId.length === 0,
+      disabledLabel: t('testModelUnavailable'),
+      run: () => { runTest(provider, modelId) },
+    }
+  }
+
   const toggleExpanded = (index: number): void => {
     setExpanded((current) => {
       const next = new Set(current)
@@ -364,6 +415,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             inputLoading={catalogProvider !== undefined && catalog === undefined}
             expanded={expanded.has(index)}
             disabled={disabled}
+            test={testPropOf(model)}
             t={t}
             contextWindow={{
               value: capacityText(model, index, 'contextWindow'),

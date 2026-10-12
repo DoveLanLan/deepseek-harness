@@ -1656,3 +1656,24 @@ export const IconMicrophoneOutlineRegular = (props: IconProps) => (
 export const IconMicrophoneOutlineMedium = (props: IconProps) => (
   <IconMicrophoneOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
 )
+
+const IconUnplugOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12.667 3.333 14.667 1.333" />
+    <path d="M1.333 14.667 3.333 12.667" />
+    <path d="M4.2 13.533a1.6 1.6 0 0 0 2.267 0L8 12 4 8l-1.533 1.533a1.6 1.6 0 0 0 0 2.267Z" />
+    <path d="M5 9 6.667 7.333" />
+    <path d="M7 11 8.667 9.333" />
+    <path d="M8 4l4 4 1.533-1.533a1.6 1.6 0 0 0 0-2.267l-1.733-1.733a1.6 1.6 0 0 0-2.267 0Z" />
+  </svg>
+)
+
+/** Unplugged connector with uniform one-pixel strokes. */
+export const IconUnplugOutlineRegular = (props: IconProps) => (
+  <IconUnplugOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Unplugged connector with uniform 1.3px strokes; the checkout control's glyph. */
+export const IconUnplugOutlineMedium = (props: IconProps) => (
+  <IconUnplugOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)

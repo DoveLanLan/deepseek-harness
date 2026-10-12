@@ -30,6 +30,13 @@ export type ModelDiscoveryOutcome =
   /** The interrogation was refused, with the Host's own diagnostic. */
   | { readonly kind: 'refused'; readonly message: string }
 
+/** What one model connectivity checkout answered. */
+export type ModelTestOutcome =
+  /** The model served the checkout request. */
+  | { readonly kind: 'ok' }
+  /** The checkout was refused or failed, with the Host's own diagnostic. */
+  | { readonly kind: 'refused'; readonly message: string }
+
 /** The Host operations the Models page and its cards invoke. */
 export interface ModelsOperations {
   /**
@@ -71,6 +78,13 @@ export interface ModelsOperations {
    * @returns the candidates, or the refusal.
    */
   discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<ModelDiscoveryOutcome>
+  /**
+   * Run one connectivity checkout against a configured model.
+   * @param provider - registered provider route to test.
+   * @param model - exact model id to test.
+   * @returns ok, or the refusal the row reports.
+   */
+  testModel(provider: string, model: string): Promise<ModelTestOutcome>
 }
 
 /**
@@ -104,6 +118,11 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
       return response.ok
         ? { kind: 'found', models: response.value }
         : { kind: 'refused', message: response.error.message }
+    },
+    testModel: async (provider, model) => {
+      const response = await ctx.remote.llm.testModel(provider, model)
+      if (!response.ok) return { kind: 'refused', message: response.error.message }
+      return response.value.ok ? { kind: 'ok' } : { kind: 'refused', message: response.value.message }
     },
   }
 }

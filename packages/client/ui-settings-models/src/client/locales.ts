@@ -115,6 +115,12 @@ export const en = {
   onboardingSave: 'Save and continue',
   onboardingSaving: 'Saving…',
   keyRequired: 'Enter an API key to continue.',
+  testModel: 'Test model',
+  testingModel: 'Testing {model}…',
+  modelTestOk: '{model} answered in {seconds}s',
+  modelTestFailed: '{model} failed: {reason}',
+  modelTestFailedWithoutReason: '{model} failed',
+  testModelUnavailable: 'Save the provider before testing a model',
 }
 
 /** The settings.models namespace key union. */
@@ -235,4 +241,10 @@ export const zh: { [Key in keyof typeof en]: string } = {
   onboardingSave: '保存并继续',
   onboardingSaving: '保存中…',
   keyRequired: '请输入 API 密钥后继续。',
+  testModel: '测试模型',
+  testingModel: '正在测试 {model}…',
+  modelTestOk: '{model} 响应正常，用时 {seconds} 秒',
+  modelTestFailed: '{model} 测试失败：{reason}',
+  modelTestFailedWithoutReason: '{model} 测试失败',
+  testModelUnavailable: '请先保存提供商，再测试模型',
 }
