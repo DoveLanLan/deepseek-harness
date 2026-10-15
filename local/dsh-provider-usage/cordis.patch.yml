@@ -1,0 +1,27 @@
+# The provider usage bundle patch: one Host row. Its browser half is the
+# package's `./client` export, which the modules node half scans into the boot
+# graph from this row's package name, so the rows and their dialog need no
+# second row.
+#
+# Each block configures one provider's quota source, and a provider with no
+# block may still show a row but reports a missing source when queried:
+#
+#   clinepass — the Cline account API, read with the same credential reference
+#               the provider itself sends (llm-pi-ai's `apiKeyEnv`).
+#   volces    — the ARK Coding Plan snapshot, read through `arkcli`, which owns
+#               its own SSO login and refresh.
+- insert:
+    - id: provider-usage
+      name: '@local/dsh-provider-usage'
+      config:
+        clinepass:
+          credentialRef: HEWEILI_API_KEY
+          # Walk the lifetime token total from the day this ClinePass plan
+          # started; without it the walk covers 24 months.
+          tokensSince: '2026-09-01'
+        volces:
+          command: arkcli
+          product: coding-plan
+          # Walk the platform token total back to the day this Coding Plan
+          # started; without it the volces dialog reports the month only.
+          tokensSince: '2026-09-01'

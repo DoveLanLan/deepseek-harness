@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Provider 用量",
+    "description": "在「模型」设置里为 clinepass 与 volces 的 provider 卡片添加使用额度（5 小时 / 每周 / 每月）与 Token 用量（本月 / 累计）查询。"
+  }
+}

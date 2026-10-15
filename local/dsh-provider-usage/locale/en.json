@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Provider Usage",
+    "description": "Adds usage-limit and token queries (5-hour, weekly, monthly, month-to-date and lifetime tokens) to the clinepass and volces provider cards in Models settings."
+  }
+}
