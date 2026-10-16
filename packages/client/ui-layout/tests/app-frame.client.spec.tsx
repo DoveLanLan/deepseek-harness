@@ -324,11 +324,13 @@ describe('AppFrame normal width concessions', () => {
     expect(tracks(frame)).toEqual([420, 0])
   })
 
-  it('uses the post-collapse left rail to permit a narrow first opening', () => {
+  it('keeps the left rail in place so a narrow first opening still fits', () => {
     frameWidth = 800
     const { frame, instance, rightOwner } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([280, 0])
+    // The expansion is the overlay drawer: the rail's track is unchanged, and
+    // the panel below still prices the same room.
+    expect(tracks(frame)).toEqual([56, 0])
     expect(rightOwner()).toEqual({ width: 344, viewportWidth: 800, canShow: true })
     act(() => { instance.actions.openRightbar(true, false) })
     expect(tracks(frame)).toEqual([56, 360])
@@ -343,36 +345,50 @@ describe('AppFrame normal width concessions', () => {
     expect(rightOwner()).toEqual({ width: rightbar, viewportWidth: width, canShow })
   })
 
-  it('does not anticipate another left collapse after the right panel is already shown', () => {
+  it('keeps right-panel eligibility through a narrow drawer opening', () => {
     frameWidth = 800
-    const { instance, rightOwner } = mountFrame()
-    act(() => { instance.actions.openRightbar(true, false); instance.actions.toggleSidebar() })
-    expect(rightOwner().canShow).toBe(false)
+    const { frame, instance, rightOwner } = mountFrame()
+    act(() => { instance.actions.openRightbar(true, false) })
+    expect(rightOwner()).toEqual({ width: 344, viewportWidth: 800, canShow: true })
+    act(() => { instance.actions.toggleSidebar() })
+    // The overlay never reprices the columns: the shown panel keeps its room.
+    expect(rightOwner()).toEqual({ width: 344, viewportWidth: 800, canShow: true })
+    expect(tracks(frame)).toEqual([56, 360])
+    expect(frame.dataset.sidebarDrawer).toBe('true')
   })
 
   it('auto-collapses only below 1024px and preserves the wide sidebar preference', () => {
-    const { frame, instance } = mountFrame()
+    const { frame, instance, sidebarOwner } = mountFrame()
     act(() => { instance.actions.setSidebar(400) })
     resize(1024)
     expect(tracks(frame)[0]).toBe(400)
     resize(1023)
     expect(tracks(frame)[0]).toBe(56)
-    act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)[0]).toBe(400)
-    resize(980)
-    expect(tracks(frame)[0]).toBe(400)
+    // The narrow expansion is the overlay: the track stays the rail and the
+    // stored wide preference survives it untouched.
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)[0]).toBe(56)
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 448 })
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(400)
+    resize(980)
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)[0]).toBe(56)
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
     resize(1920)
     expect(tracks(frame)[0]).toBe(400)
   })
 
-  it('re-expands a wide-closed sidebar at the default width while narrow', () => {
-    const { frame, instance } = mountFrame()
+  it('opens the narrow drawer over a wide-closed sidebar without touching its preference', () => {
+    const { frame, instance, sidebarOwner } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
     resize(980)
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)[0]).toBe(280)
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    expect(tracks(frame)[0]).toBe(56)
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 448 })
     expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
   })
 })
@@ -438,16 +454,17 @@ describe('AppFrame right panel presentation', () => {
     expect(frame.dataset.animating).toBeUndefined()
   })
 
-  it('lands the responsive auto-collapse instantly, keeping user toggles eased', () => {
+  it('lands the responsive auto-collapse instantly and opens the drawer without a track transition', () => {
     const { frame, instance } = mountFrame()
     // Shrinking across the breakpoint flips the collapse in the same update as
     // the viewport change: no easing, the tracks land with the window edge.
     resize(900)
     expect(frame.dataset.sidebarCollapsed).toBe('true')
     expect(frame.dataset.animating).toBeUndefined()
-    // A user toggle at the now-stable viewport still eases.
+    // The overlay takes no track, so this toggle has no track to ease.
     act(() => { instance.actions.toggleSidebar() })
-    expect(frame.dataset.animating).toBe('true')
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    expect(frame.dataset.animating).toBeUndefined()
   })
 
   it('animates the rightbar track flip and settles by timeout without a transition end', () => {
@@ -665,6 +682,19 @@ describe('AppFrame frame measurement lifecycle', () => {
     expect(rightOwner().viewportWidth).toBe(1920)
   })
 
+  it('prices the columns against the frame content box, not its safe-area padding', () => {
+    frameWidth = 844
+    // A landscape notch insets both sides: 844 - 47 - 47 = 750px of columns.
+    vi.stubGlobal('getComputedStyle', () => ({ paddingLeft: '47px', paddingRight: '47px' }))
+    const { frame, instance, rightOwner, sidebarOwner } = mountFrame()
+    expect(instance.getSnapshot().layoutInfo.viewportWidth).toBe(750)
+    expect(tracks(frame)).toEqual([56, 0])
+    // The padded content box cannot hold 300px beside the protected 400px.
+    expect(rightOwner()).toEqual({ width: 0, viewportWidth: 750, canShow: false })
+    act(() => { instance.actions.toggleSidebar() })
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: 448 })
+  })
+
   it('disconnects the observer and prevents queued or late reports after unmount', () => {
     const { instance, unmount } = mountFrame()
     const observer = observers.at(-1)!
@@ -677,5 +707,95 @@ describe('AppFrame frame measurement lifecycle', () => {
     act(() => { observer.fire(); flushFrames() })
     expect(instance.getSnapshot().layoutInfo.viewportWidth).toBe(1920)
     expect(animationFrames.size).toBe(0)
+  })
+})
+
+describe('AppFrame narrow sidebar drawer', () => {
+  /** The columns the open drawer covers; each leaves the interaction tree. */
+  function coveredSurfaces(frame: HTMLElement, mainContent: HTMLElement): HTMLElement[] {
+    return [
+      mainContent.parentElement!,
+      frame.querySelector<HTMLElement>('[data-rightbar-col]')!,
+      frame.querySelector<HTMLElement>('[data-shell-bottom]')!,
+    ]
+  }
+
+  it.each([[390, 343], [1023, 448]] as const)('covers a %ipx frame at the resolved drawer width', (width, expected) => {
+    frameWidth = width
+    const { frame, instance, sidebarOwner } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    expect(frame.style.getPropertyValue('--dsh-sidebar-drawer-width')).toBe('min(88%, 448px)')
+    expect(sidebarOwner()).toEqual({ collapsed: false, width: expected })
+    // The rail's track is untouched: the conversation keeps its whole width.
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(frame.dataset.animating).toBeUndefined()
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+  })
+
+  it('takes the covered columns out of the interaction and accessibility trees', () => {
+    frameWidth = 390
+    const { frame, instance, getByTestId } = mountFrame()
+    const surfaces = () => coveredSurfaces(frame, getByTestId('main-content'))
+    for (const surface of surfaces()) {
+      expect(surface.hasAttribute('inert')).toBe(false)
+      expect(surface.getAttribute('aria-hidden')).toBeNull()
+    }
+    act(() => { instance.actions.toggleSidebar() })
+    for (const surface of surfaces()) {
+      expect(surface.hasAttribute('inert')).toBe(true)
+      expect(surface.getAttribute('aria-hidden')).toBe('true')
+    }
+    act(() => { instance.actions.closeNarrowSidebar() })
+    for (const surface of surfaces()) {
+      expect(surface.hasAttribute('inert')).toBe(false)
+      expect(surface.getAttribute('aria-hidden')).toBeNull()
+    }
+  })
+
+  it('covers the darwin leading seat with the same inert contract', () => {
+    document.documentElement.dataset.platform = 'darwin'
+    frameWidth = 900
+    const { frame, instance } = mountFrame()
+    const seat = () => frame.querySelector<HTMLElement>('[data-shell-leading]')
+    expect(seat()?.hasAttribute('inert')).toBe(false)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(seat()?.hasAttribute('inert')).toBe(true)
+    expect(seat()?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('dismisses the drawer from the scrim button and from Escape', () => {
+    frameWidth = 390
+    const { frame, instance, getByRole } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    act(() => { getByRole('button', { name: 'close' }).click() })
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
+    expect(frame.querySelector('[data-shell-bottom]')?.hasAttribute('inert')).toBe(false)
+    act(() => { instance.actions.toggleSidebar() })
+    // A key that is not Escape leaves the overlay up...
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })) })
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    // ...Escape closes it, and a closed frame mounts no listener to react to.
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
+  })
+
+  it('dismisses the drawer when a navigation leaves the sidebar', () => {
+    frameWidth = 390
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    act(() => { instance.actions.selectPanel('panel-a' as MainPanelId) })
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
+    expect(instance.getSnapshot().layoutInfo.narrowExpanded).toBe(false)
+  })
+
+  it('keeps the desktop frame free of the drawer surface', () => {
+    const { frame, instance, queryByRole } = mountFrame()
+    expect(frame.style.getPropertyValue('--dsh-sidebar-drawer-width')).toBe('')
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.dataset.sidebarDrawer).toBeUndefined()
+    expect(queryByRole('button')).toBeNull()
   })
 })

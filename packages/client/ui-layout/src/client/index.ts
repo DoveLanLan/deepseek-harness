@@ -63,7 +63,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * sidebar, register into one of those inner seats instead.
      *
      * The occupant receives the frame's live column state (collapsed, width)
-     * and is expected to render the compact control rail while collapsed.
+     * and is expected to render the compact control rail while collapsed. Below
+     * the auto-collapse breakpoint an expanded sidebar is an overlay drawer:
+     * `collapsed` is then false with the drawer's covering width, while the
+     * column keeps the rail's grid track underneath.
      */
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
     /**
@@ -127,9 +130,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
 export interface SidebarOwnerProps {
-  /** True when the sidebar is closed (the column renders the compact control rail). */
+  /**
+   * True when the sidebar renders its compact control rail.
+   *
+   * False while the narrow overlay drawer is open, where the occupant renders
+   * the full sidebar inside the overlay and the column keeps the rail's track.
+   */
   collapsed: boolean
-  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
+  /**
+   * Rendered width in px: the rail width (SIDEBAR_COLLAPSED) while collapsed,
+   * the resolved drawer width while the narrow overlay is open, and the column
+   * width otherwise.
+   */
   width: number
 }
 

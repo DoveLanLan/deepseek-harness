@@ -60,6 +60,7 @@ type LayoutActions = {
   retainMainPanels: (draft: LayoutState, panelIds: readonly string[]) => void
   setSidebar: (draft: LayoutState, px: number) => void
   toggleSidebar: (draft: LayoutState) => void
+  closeNarrowSidebar: (draft: LayoutState) => void
   setViewportWidth: (draft: LayoutState, width: number) => void
   setRightbar: (draft: LayoutState, px: number) => void
   openRightbar: (draft: LayoutState, track: boolean, fullscreen: boolean) => void
@@ -72,7 +73,8 @@ type LayoutActions = {
  * default. The right panel initializes at 45% of the frame on first opening
  * and keeps that px preference across resizes and close. Drag writes clamp to
  * the current frame's range. Narrow sidebar toggles change only the expansion
- * override; opening the right panel clears that override.
+ * override; opening the right panel, navigating to a panel, and the drawer's
+ * own dismissal all clear that override.
  * @returns the store handle (spec + type + identity + factory in one).
  */
 export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
@@ -93,6 +95,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
     actions: {
       selectPanel: (d, panelId: MainPanelId | null) => {
         d.panelInfo.activePanelId = panelId
+        // Navigating from the sidebar dismisses the narrow drawer: it covers the
+        // destination the navigation just opened.
+        d.layoutInfo.narrowExpanded = false
       },
       retainMainPanels: (d, panelIds: readonly string[]) => {
         if (d.panelInfo.activePanelId !== null && !panelIds.includes(d.panelInfo.activePanelId)) {
@@ -109,6 +114,11 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         d.layoutInfo.rightbarInstant = false
         if (d.layoutInfo.viewportWidth < SIDEBAR_AUTO_COLLAPSE) d.layoutInfo.narrowExpanded = !d.layoutInfo.narrowExpanded
         else d.layoutInfo.sidebar = d.layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : 0
+      },
+      // The drawer's own dismissal path (scrim, Escape): never a toggle, so a
+      // stale caller can only close the overlay it saw.
+      closeNarrowSidebar: (d) => {
+        d.layoutInfo.narrowExpanded = false
       },
       // Crossing the breakpoint in either direction drops the override: the
       // narrow default is auto-collapsed, the wide state is the preference.

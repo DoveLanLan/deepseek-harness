@@ -74,6 +74,8 @@ Explicit selections update every consumer immediately; accepted Host settings re
 
 Preference menus restore focus to their trigger without scrolling before publishing a new selection.
 
+The usage and time pills collapse to icon-only circles at 480px of column, not of viewport: the query is a container one, so the pills follow the transcript column that the sidebar and the right panel also narrow.
+
 <a id="completed-turn-footer"></a>
 ## Completed-turn footer
 
@@ -121,7 +123,7 @@ The session-scoped `conversation.chat.reasoning.body` single Slot offers the ori
 
 The Chat-node slot injects a reset-bound `useDisclosure` Hook for reasoning and tools. Intermediate renderers forward it without subscribing; each invocation owns independent open state. Source callbacks retain their receiver and stable identity. When an enclosing Turn actually hides a process member, its seat resets those disclosures without replacing component keys or changing the Hook reference. Display-mode changes preserve their open state.
 
-Process rows share one text and icon color in every Work details mode: tertiary at rest and secondary on hover, while error and warning text keeps its semantic color. Leading icons, disclosure chevrons, and their boxes scale with the content font-size delta.
+Process rows share one text and icon color in every Work details mode: tertiary at rest and secondary on hover, while error and warning text keeps its semantic color. Leading icons, disclosure chevrons, and their boxes scale with the content font-size delta. Hover fills and hover-only reveals in Chat's rows, pills, and floating controls sit behind `@media (hover: hover)`: a device without hover keeps the resting state and its tap leaves no highlight behind, while open, dragging, and keyboard-focus states stay outside that gate.
 
 -----
 

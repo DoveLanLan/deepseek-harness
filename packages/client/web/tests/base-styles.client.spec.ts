@@ -76,4 +76,14 @@ describe('web shell base.css', () => {
       `${literalContentSelectors.join(', ')} { text-autospace: no-autospace; }`,
     )
   })
+
+  it('fills the dynamic viewport with the percentage chain as the fallback', () => {
+    // Mobile browser chrome shows and hides without changing the percentage
+    // height chain, which would leave the composer seat under the browser UI;
+    // the percentage box stays the fallback for engines without the unit.
+    expect(normalizedCss).toContain('html, body, #root { height: 100%; margin: 0; }')
+    expect(normalizedCss).toContain(
+      '@supports (height: 100dvh) { html, body, #root { height: 100dvh; } }',
+    )
+  })
 })

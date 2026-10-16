@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import base from '../styles/base.css?inline'
+import mobilePlatform from '../styles/mobile-platform.css?inline'
 import cornerShape from '../styles/corner-shape.css?inline'
 import designPlatform from '../styles/design-platform.css?inline'
 import focus from '../styles/focus.css?inline'
@@ -12,6 +13,7 @@ const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-theme'
 
 const STYLES = [
   ['base.css', base],
+  ['mobile-platform.css', mobilePlatform],
   ['corner-shape.css', cornerShape],
   ['design-platform.css', designPlatform],
   ['focus.css', focus],

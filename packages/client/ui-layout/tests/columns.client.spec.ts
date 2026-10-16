@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { clampWidth, computeColumns } from '../src/client/columns.ts'
+import { clampWidth, computeColumns, drawerWidth, SIDEBAR_DRAWER_MAX, SIDEBAR_DRAWER_WIDTH } from '../src/client/columns.ts'
 
 describe('clampWidth', () => {
   it('clamps into the range and rounds', () => {
     expect(clampWidth(250.4, 240, 420)).toBe(250)
     expect(clampWidth(100, 240, 420)).toBe(240)
     expect(clampWidth(9999, 240, 420)).toBe(420)
+  })
+})
+
+describe('drawerWidth', () => {
+  it('covers the frame fraction and stops at the ceiling', () => {
+    expect(drawerWidth(390)).toBe(343)
+    expect(drawerWidth(500)).toBe(440)
+    expect(drawerWidth(1023)).toBe(SIDEBAR_DRAWER_MAX)
+    expect(drawerWidth(1920)).toBe(SIDEBAR_DRAWER_MAX)
+  })
+
+  it('never claims more than the width expression its stylesheet resolves', () => {
+    expect(SIDEBAR_DRAWER_WIDTH).toBe('min(88%, 448px)')
+    for (const viewport of [320, 390, 393, 509, 511, 1023]) {
+      expect(drawerWidth(viewport)).toBeLessThanOrEqual(Math.min(viewport * 0.88, SIDEBAR_DRAWER_MAX))
+    }
   })
 })
 

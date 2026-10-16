@@ -48,6 +48,10 @@ export function DraftEditor({
           aria-haspopup={workspaceTrigger ? 'menu' : undefined}
           aria-expanded={workspaceTrigger ? workspacePickerOpen : undefined}
           tabIndex={workspaceTrigger ? 0 : undefined}
+          // The soft keyboard's return key names what Enter does on the
+          // device: a line break (the keymap keeps the break wherever no
+          // pointer can hover), never a send the bar's button owns.
+          enterKeyHint="enter"
           onKeyDown={workspaceTrigger ? onWorkspaceKeyDown : undefined}
           style={hint === null ? undefined : { '--dsh-composer-hint': JSON.stringify(hint) } as CSSProperties}
         />

@@ -189,10 +189,63 @@
   accent-color: var(--dsw-alias-label-secondary);
 }
 
+/* The frame owns the geometry a hosting layout widens through the
+   `md-table-wide` hook, and carries the overflow affordances at its own edges;
+   the scroller inside it is the element that actually moves, so both edges stay
+   put while the table travels under them.
+
+   `min-width: 0` is load-bearing: the frame is not itself a scroll container,
+   so as a flex item its automatic minimum size is its min-content width, and a
+   wide table would refuse to shrink below its natural width and push the
+   transcript sideways. The scroller inside it has no such minimum because a
+   scroll container's automatic minimum size is zero. */
+.tableFrame {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+}
+
+/* Overflow affordance. `data-table-edges` is measured in MarkdownTableFrame, so
+   a shadow appears only on a side whose content is actually hidden, and a table
+   scrolled to its end drops the shadow it has reached. The native bar cannot
+   carry this: touch engines paint theirs only while the finger is moving —
+   exactly when the hint is no longer needed — and the wide-table desktop arm
+   hides the bar at rest by design. */
+.tableEdgeShadow {
+  position: absolute;
+  inset-block: 0;
+  width: 20px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tableEdgeShadow {
+    transition: none;
+  }
+}
+
+.tableEdgeShadow[data-side='left'] {
+  left: 0;
+  background: linear-gradient(to right, var(--dsw-alias-bg-mask-2), transparent);
+}
+
+.tableEdgeShadow[data-side='right'] {
+  right: 0;
+  background: linear-gradient(to left, var(--dsw-alias-bg-mask-2), transparent);
+}
+
+.tableFrame[data-table-edges='left'] .tableEdgeShadow[data-side='left'],
+.tableFrame[data-table-edges='right'] .tableEdgeShadow[data-side='right'],
+.tableFrame[data-table-edges='both'] .tableEdgeShadow {
+  opacity: 1;
 }
 
 /* Wide tables reveal their horizontal bar on hover (or keyboard focus)
@@ -204,16 +257,26 @@
    path. There, `scroll` reserves that height even when the table fits.
    Other engines and overlay scrollbars may reserve a different height.
    Wheel and trackpad scrolling need the pointer over the table, which is
-   already the hover that re-enables scrolling. */
-.tableScroll:global(.md-table-wide) {
-  overflow-x: hidden;
-  padding-bottom: var(--dsh-scrollbar-width, 5px);
-}
+   already the hover that re-enables scrolling.
 
-.tableScroll:global(.md-table-wide):hover,
-.tableScroll:global(.md-table-wide):focus-visible {
-  overflow-x: scroll;
-  padding-bottom: 0;
+   The reveal is a pointer affordance, so it is scoped to a hovering primary
+   input. A device that cannot hover has no gesture that produces that state
+   — Chromium does not match :focus-visible for touch taps either — so a wide
+   table resting hidden would keep columns no gesture can reach. Those
+   devices inherit the scrolling `overflow-x: auto` of `.tableScroll`
+   instead, which also drops the reserved bar height: overlay scrollbars
+   take no layout space there. */
+@media (hover: hover) {
+  .tableFrame:global(.md-table-wide) .tableScroll {
+    overflow-x: hidden;
+    padding-bottom: var(--dsh-scrollbar-width, 5px);
+  }
+
+  .tableFrame:global(.md-table-wide) .tableScroll:hover,
+  .tableFrame:global(.md-table-wide) .tableScroll:focus-visible {
+    overflow-x: scroll;
+    padding-bottom: 0;
+  }
 }
 
 /* Chromium keyboard-focuses scrollable containers by default; the ring uses
@@ -241,6 +304,12 @@
   max-width: none;
 }
 
+/* Cell width cap. The cap is a fixed reading measure, deliberately not tied to
+   the viewport: a `min(30vw, 320px)` clamp shrank it to 117px at 390px, so a
+   many-column table answered a narrow screen by wrapping every cell into a tall
+   narrow tube instead of staying wide and scrolling. Below the cap a cell keeps
+   its minimum readable width and the wrapper scrolls, which is the trade a
+   phone wants (a horizontal pan is one gesture; a 40-line cell is a scroll). */
 .tableScroll th {
   text-align: start;
   padding: 10px 16px;
@@ -248,7 +317,6 @@
   border-top: none;
   font: var(--dsw-font-markdown-table-head);
   max-width: 320px;
-  max-width: min(30vw, 320px);
   min-width: 100px;
 }
 
@@ -257,7 +325,6 @@
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   font: var(--dsw-font-markdown-table);
   max-width: 320px;
-  max-width: min(30vw, 320px);
   min-width: 100px;
 }
 
@@ -405,6 +472,16 @@
 .compact pre,
 .compact pre :is(code, span) {
   color: inherit !important;
+}
+
+/* Compact tables stay inside the compact column. This arm also outranks the
+   hosted breakout (`.body .md-table-wide`), which is two classes against these
+   three, so a table inside a thinking block never widens past its block: the
+   frame carries the hook now, and the clamp has to reach it there or the
+   breakout's `max-width: none` would leave the markdown root overflowing. */
+.markdown.compact .tableFrame {
+  width: 100%;
+  max-width: 100%;
 }
 
 .markdown.compact .tableScroll {

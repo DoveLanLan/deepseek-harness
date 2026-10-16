@@ -1,6 +1,9 @@
 /** Shared comparison layout, header, states, and numbered diff lines for previews and review tabs. */
 .root { --diff-empty-fill: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 50%, transparent); display: flex; flex-direction: column; box-sizing: border-box; width: 100%; min-height: 0; color: var(--dsw-alias-label-primary); }
 .header { display: flex; flex: 0 0 auto; gap: 6px; align-items: center; box-sizing: border-box; height: 38px; padding: 0 6px 0 8px; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
+/* The header holds the review's and the preview's controls; on touch they take
+   a 44px hit area, so the row grows to hold them instead of clipping them. */
+@media (pointer: coarse) { .header { height: auto; min-height: 44px; } }
 .status { display: flex; gap: 12px; align-items: center; margin: 0; padding: 16px; font-size: 13px; color: var(--dsw-alias-label-secondary); }
 .body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: auto; padding: 8px 0 16px; font: var(--dsw-font-markdown-code-block); }
 .columns { display: grid; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }

@@ -75,6 +75,19 @@ describe('createLayoutStore', () => {
     actions.setViewportWidth(980)
     expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(false)
   })
+
+  it('closes the narrow drawer while keeping the wide preference and a closed snapshot', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setViewportWidth(980)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+    actions.closeNarrowSidebar()
+    expect(store.getSnapshot().layoutInfo).toMatchObject({ narrowExpanded: false, sidebar: 400 })
+    const closed = store.getSnapshot()
+    actions.closeNarrowSidebar()
+    expect(store.getSnapshot()).toBe(closed)
+  })
 })
 
 describe('main panel selection', () => {
@@ -103,6 +116,19 @@ describe('main panel selection', () => {
     actions.selectPanel(panelA)
     expect(store.getSnapshot()).toBe(selected)
     expect(store.getSnapshot().panelInfo.activePanelId).toBe(panelA)
+  })
+
+  it('dismisses the narrow drawer when a panel navigation commits', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setViewportWidth(980)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().layoutInfo.narrowExpanded).toBe(true)
+    actions.selectPanel(panelA)
+    expect(store.getSnapshot().layoutInfo).toMatchObject({ narrowExpanded: false, viewportWidth: 980 })
+    // Navigating with the drawer already closed keeps the layout identity.
+    const closed = store.getSnapshot()
+    actions.selectPanel(null)
+    expect(store.getSnapshot().layoutInfo).toBe(closed.layoutInfo)
   })
 
   it('returns to the Conversation only when the selected main registration disappears', () => {

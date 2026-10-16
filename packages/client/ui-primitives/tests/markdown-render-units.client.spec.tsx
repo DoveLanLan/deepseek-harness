@@ -104,10 +104,12 @@ describe('renderBlocks over hand-built trees', () => {
   })
 
   it('renders a rowless align-less table as an empty fill wrapper', () => {
-    // Zero columns is below the wide threshold, so the fill arm applies.
+    // Zero columns is below the wide threshold, so the fill arm applies. The
+    // hook sits on the frame; the scroller inside it is what moves.
     const container = renderNodes([{ type: 'table', children: [] }])
-    const wrapper = container.querySelector('table')?.parentElement
-    expect(wrapper?.className).not.toContain('md-table-wide')
+    const frame = container.querySelector('[class*="tableFrame"]')
+    expect(frame?.className).toContain('tableFill')
+    expect(frame?.className).not.toContain('md-table-wide')
     expect(container.querySelector('table')?.childElementCount).toBe(0)
   })
 

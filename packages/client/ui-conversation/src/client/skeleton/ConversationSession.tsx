@@ -124,9 +124,12 @@ export function ConversationSessionHeader({
                 })}
                 {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
               </nav>
-              <div className={css.headerActions}>
-                {renderSlot('conversation.session.header.actions', {})}
-              </div>
+            </div>
+            {/* Outside the title cluster so a narrow column can wrap the whole
+                action area onto its own line and leave the title the first one
+                (dsh-responsive-ui 4.1). */}
+            <div className={css.headerActions}>
+              {renderSlot('conversation.session.header.actions', {})}
             </div>
             <div className={css.headerUtilities}>
               {renderSlot('conversation.session.header.utilities', {})}

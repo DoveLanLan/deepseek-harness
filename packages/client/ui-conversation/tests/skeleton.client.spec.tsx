@@ -520,6 +520,9 @@ describe('ConversationRoot resident composer', () => {
     expect(host?.contains(header)).toBe(false)
     expect(host?.contains(seat)).toBe(true)
     expect(seat?.contains(textarea)).toBe(true)
+    // The soft keyboard's return key names the composer's Enter gesture: a
+    // line break, never the send the button owns.
+    expect(textarea?.getAttribute('enterkeyhint')).toBe('enter')
     expect(b.slotCalls).toContain('conversation.session.header.lineage')
     expect(b.slotCalls).toContain('conversation.header.leading')
     expect(b.slotCalls).toContain('conversation.session.header.actions')

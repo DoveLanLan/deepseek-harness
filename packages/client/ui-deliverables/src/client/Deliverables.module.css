@@ -19,11 +19,17 @@
 .description { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-weight: 400; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .description[data-error='true'] { color: var(--dsw-alias-state-error-primary); }
 .previewHint { display: none; }
-.file:hover .description:not([role='status']) .secondaryText { display: none; }
-.file:hover .description:not([role='status']) .previewHint { display: inline; }
+/* Same capability gate as the changed-files header: the description line keeps
+   its content on a device that cannot hover, and the tap on .cardPreview stays
+   the reachable path to the preview. */
+@media (hover: hover) {
+  .file:hover .description:not([role='status']) .secondaryText { display: none; }
+  .file:hover .description:not([role='status']) .previewHint { display: inline; }
+}
 .toggle { align-self: center; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 1px 11px; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font: inherit; font-size: 12px; line-height: 18px; }
 .toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .toggle svg { flex: none; width: 14px; height: 14px; }
+@media (pointer: coarse) { .toggle { min-height: 44px; } }
 @container (max-width: 620px) { .presented { grid-template-columns: minmax(0, 1fr); } }
 .actions { display: inline-flex; flex: none; pointer-events: auto; }
 

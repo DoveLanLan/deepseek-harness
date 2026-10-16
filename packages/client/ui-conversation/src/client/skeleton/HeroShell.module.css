@@ -166,9 +166,16 @@
   cursor: pointer;
 }
 
-.workspace:not(:disabled):hover,
+/* The open state keeps its fill everywhere; the hover fill belongs to a
+   pointer that can hover, so a tap leaves no stuck highlight (skill 6.2). */
 .workspace[aria-expanded='true'] {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+@media (hover: hover) {
+  .workspace:not(:disabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 /* Locked form (bound guidance state): a static echo — no hover feedback, no

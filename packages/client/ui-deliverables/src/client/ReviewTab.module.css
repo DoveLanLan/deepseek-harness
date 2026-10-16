@@ -19,3 +19,7 @@
 .tool[aria-pressed='true'] .compareIcon { transform: rotate(90deg); }
 .tool:disabled { cursor: progress; }
 .tool[data-error] { color: var(--dsw-alias-state-error-primary); }
+/* Touch targets: the review header's controls sit at 28px. Grow the hit area
+   only — the 15px glyphs keep their size; FileDiff raises the header's height
+   to hold them. */
+@media (pointer: coarse) { .tool, .selectorButton { min-width: 44px; min-height: 44px; } }

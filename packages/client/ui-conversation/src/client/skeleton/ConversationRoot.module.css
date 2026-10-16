@@ -11,7 +11,10 @@
    (ui-dockkit `.tabStrip` 38px + the pane header's 38px), so the two rules
    meet at the column edge. The rows add up to it — 10px top inset, the 30px
    title row, the tab strip's 10px margin, a 16px tab line, and its 9px bottom
-   inset — so no row below may grow past its figure. */
+   inset — so no row below may grow past its figure. The min-height holds that
+   figure wherever the title row fits one line; a column narrower than the
+   row's occupants wraps it (see the inline-size query below), and the taller
+   header then stands on its own. */
 .header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -20,6 +23,12 @@
   min-height: 76px;
   padding: 10px 28px 0 20px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+  /* Anonymous inline-size container for the header's own occupants: the title
+     row and the action clusters adapt to the column they actually sit in, not
+     to the viewport (the column also narrows on wide screens when the sidebar
+     or the right panel takes its share). Occupants of the nested .titleRow
+     container keep matching that nearer one. */
+  container-type: inline-size;
 }
 
 .header:where(:not(:has(.tabs))) {
@@ -72,6 +81,7 @@
   display: flex;
   align-items: center;
   gap: 0;
+  min-width: 0;
   min-height: 30px;
   /* Clears the frame's window-chrome band (traffic lights + shell.leading
      controls, ui-layout AppFrame) when it is published; the header already
@@ -80,11 +90,13 @@
   padding-inline-start: max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 20px));
 }
 
+/* Title cluster: the crumb nav alone. It sizes to its content and gives up
+   width first (the nav clips), so the action clusters that follow keep their
+   seats on one line. */
 .titleCluster {
   display: flex;
-  flex: 1;
+  flex: 0 1 auto;
   align-items: center;
-  gap: 10px;
   min-width: 0;
 }
 
@@ -143,8 +155,12 @@
   line-height: 18px;
 }
 
-button.crumb:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* Crumb fill on hover only: a tapped crumb navigates away, so the tint would
+   otherwise stay on the breadcrumb the user returned to (skill 6.2). */
+@media (hover: hover) {
+  button.crumb:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .crumbCurrent {
@@ -153,11 +169,17 @@ button.crumb:hover {
   cursor: default;
 }
 
+/* Session actions sit beside the title (the 10px matches the cluster's own
+   rhythm); the auto margin keeps them there and pushes the utilities and the
+   corner seat to the column's trailing edge, which the title cluster's growth
+   did while the actions lived inside it. */
 .headerActions {
   display: flex;
   flex: none;
   align-items: center;
   gap: 8px;
+  margin-left: 10px;
+  margin-right: auto;
 }
 
 .headerUtilities {
@@ -186,6 +208,39 @@ button.crumb:hover {
 
 .headerCorner:empty {
   display: none;
+}
+
+/* Narrow columns: the title takes the first line whole and the action area
+   wraps under it. Before this, the fixed-width clusters kept their seats and
+   squeezed the crumbs (capped at 220px) until the column's own clipping cut
+   the trailing controls off. The row's other occupants keep their order, so
+   the wrapped line reads actions → utilities → corner. Declared after the base
+   rules it overrides: a container query adds no specificity, so only source
+   order decides. */
+@container (max-width: 560px) {
+  .titleRow {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .titleCluster {
+    flex: 1 1 100%;
+  }
+
+  /* The wrapped line holds the whole action area; an auto margin re-anchors it
+     right, which the cluster's growth did on the single line. */
+  .headerActions {
+    margin-left: auto;
+    margin-right: 0;
+  }
+
+  /* The crumb's 220px cap exists to force the ellipsis against a competing
+     cluster; on its own line the row's width is the honest limit. 100cqw is
+     the .titleRow content width, definite because that box is an inline-size
+     container. */
+  .crumb {
+    max-width: 100cqw;
+  }
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned.
@@ -241,6 +296,7 @@ button.crumb:hover {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -312,9 +368,16 @@ button.crumb:hover {
   left: 4px;
 }
 
-.widthHandle:hover::after,
+/* Hover only where a pointer can hover; the capture state keeps its glow on
+   every device, because dragging is the one gesture that reads it. */
 .widthHandle[data-dragging]::after {
   opacity: 1;
+}
+
+@media (hover: hover) {
+  .widthHandle:hover::after {
+    opacity: 1;
+  }
 }
 
 /* A drag starts above the composer band. Pointer capture keeps it active when
@@ -340,6 +403,7 @@ button.crumb:hover {
   display: flex;
   flex-direction: column;
   gap: var(--dsh-composer-stack-gap);
+  min-width: 0;
 }
 
 /* Common seat for the composer chain (fallback + elected overlay siblings). */
@@ -347,6 +411,7 @@ button.crumb:hover {
   display: flex;
   flex: none;
   flex-direction: column;
+  min-width: 0;
   /* One cap for every scrolling text region a composer seat can hold: the
      InputBar draft (figma Input 75:8208 max 14 lines × 24px line) and the
      takeover panels' bodies top out at the same height, so electing a
@@ -355,6 +420,18 @@ button.crumb:hover {
      elected overlay are siblings — and custom properties inherit down to
      whichever entry is mounted. */
   --dsh-composer-text-max-height: 336px;
+}
+
+/* Devices without hover run the draft at the platform's safe input size
+   (InputBar's (hover: none) floor): its 16px/26px line box makes the 14-line
+   figure 364px, so the cap still names exactly 14 lines and the scrollport
+   starts scrolling where it does on a desktop. Takeovers read the same
+   variable, so electing one never grows the footer past the card it
+   replaces. */
+@media (hover: none) {
+  .composerSeat {
+    --dsh-composer-text-max-height: 364px;
+  }
 }
 
 /* Active phase: header is ordinary column chrome above the scrollport (not
@@ -376,6 +453,10 @@ button.crumb:hover {
   display: flex;
   flex: 1;
   flex-direction: column;
+  /* The column's width chain gives min-width back at every level: a wide
+     markdown table or code block scrolls inside its own box instead of
+     widening the column past the frame that clips it. */
+  min-width: 0;
   min-height: 0;
 
   /* Shared width axis for the transcript, dock cards, composer, and takeover
@@ -402,6 +483,7 @@ button.crumb:hover {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   /* The product-wide 2px scrollbar offset (ui-workspace WorkspaceBrowser
      `.list`, ui-sidebar-files FilesBody `.body`): the bar sits 2px clear of

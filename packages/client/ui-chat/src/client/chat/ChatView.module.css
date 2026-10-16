@@ -2,6 +2,9 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  /* The transcript column never widens past the box that hosts it: wide
+     content scrolls inside its own container. */
+  min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
   /* Floating controls query this frame outside the clipped transcript. */
@@ -12,6 +15,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
 
@@ -21,6 +25,7 @@
 
 .scroll {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   /* Sides = composer clearance + 16px: on narrow viewports the transcript
@@ -294,8 +299,12 @@
   pointer-events: auto;
 }
 
-.toBottom:hover {
-  background: var(--dsw-alias-button-floating-hover);
+/* Hover fill only where a pointer can hover: tapping the control jumps to the
+   tail, and the tint must not stay behind on a touch device (skill 6.2). */
+@media (hover: hover) {
+  .toBottom:hover {
+    background: var(--dsw-alias-button-floating-hover);
+  }
 }
 
 /* Host open-path refusal: same dialog family as the workspace folder error. */

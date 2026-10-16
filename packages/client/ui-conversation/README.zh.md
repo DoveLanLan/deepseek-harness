@@ -98,6 +98,8 @@ Session 首次绑定或缓存的 Session 成为 current 时，shell 会在渲染
 
 普通 Enter 使用已配置的投递模式，严格的 Ctrl+Enter 或 Cmd+Enter 使用互补模式，Shift+Enter 插入换行。带 Alt、AltGraph、同时带 Ctrl 与 Cmd，或 Shift 与 Ctrl/Cmd 的 Enter 保持草稿和指令菜单不变，并将 DOM 事件留给应用快捷键。Conversation 插件注册发送、换行、互补投递、命令菜单和引用菜单的固定条目，并在卸载前保留这些键位。
 
+主指针无法 hover 的设备就是带软键盘的设备，composer 会为它适配，同时不改变可 hover 指针的行为。草稿以 `--dsh-input-font-size-safe`（16px，ui-theme）为下限——设置为更大值时仍以设置为准——因此 iOS Safari 不会在草稿获得焦点时放大页面，座位的 14 行上限也随之采用更高的行框。在该设备上普通 Enter 插入换行（软键盘没有 Shift 键），发送由 Send 按钮承担，`enterkeyhint="enter"` 向键盘声明这一语义；Ctrl+Enter 与 Cmd+Enter 仍然提交，而没有 DOM 事件的合成 Enter 保持桌面手势。composer 的底部留白取 `--dsh-safe-area-bottom` 与软键盘遮挡高度中的较大者：后者从 `visualViewport` 测得，并作为 `--dsh-composer-keyboard-inset` 发布在 composer 根元素上；可 hover 的指针不安装任何监听。composer 与会话头部的 hover 底色和仅 hover 显示的揭示都置于 `@media (hover: hover)` 之内，因此点按不会留下粘滞高亮；展开、拖拽与键盘焦点状态不在此门控内。会话列窄到容不下头部各控件时，操作区换到下一行而不是被裁掉，列的 flex 链在每一层都交还 `min-width`。
+
 点击可编辑输入框内的留白时，已聚焦的输入框保留当前光标或选区，未聚焦的输入框恢复上次的光标或选区。文本选择、滚动条、控件和内嵌浮层保持各自的指针交互行为。
 
 每次输入框提交都携带原始发生时间、操作来源、投递意图以及会话模型和运行状态快照，贯穿异步命令裁决。普通消息通知在引用序列化前发出一次，纯附件提交也遵循这一规则；已处理或认领的命令不发出通知。快照读取与通知消费异常不能阻断发送。

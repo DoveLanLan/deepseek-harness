@@ -350,17 +350,21 @@
 
 /* Rail logo swap: collapsed, the toggle rests as the whale mark (brand ink,
    no hover circle) and hovering reveals the panel icon — the expand
-   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon. */
+   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon.
+   The swap is that hover preview alone, so a tap cannot strand the panel icon
+   in place of the mark (skill 6.2). */
 .collapsed .toggle .panelIcon {
   display: none;
 }
 
-.collapsed .toggle:hover .panelIcon {
-  display: inline;
-}
+@media (hover: hover) {
+  .collapsed .toggle:hover .panelIcon {
+    display: inline;
+  }
 
-.collapsed .toggle:hover .railMark {
-  display: none;
+  .collapsed .toggle:hover .railMark {
+    display: none;
+  }
 }
 
 .railMark {
@@ -416,10 +420,6 @@
   overflow: hidden;
 }
 
-.newSession:hover {
-  background: var(--dsw-alias-button-floating-hover);
-}
-
 /* macOS: the themed elevated fill reads as a foreign slab on the vibrancy
    sidebar; a white wash sits in the glass like native macOS sidebar
    controls. Dark keeps the same white ink at lower alpha. */
@@ -427,16 +427,8 @@
   background: rgb(255 255 255 / 0.55);
 }
 
-:global([data-platform='darwin']) .newSession:hover {
-  background: rgb(255 255 255 / 0.3);
-}
-
 :global([data-platform='darwin']) :global([data-ds-dark-theme]) .newSession {
   background: rgb(255 255 255 / 0.15);
-}
-
-:global([data-platform='darwin']) :global([data-ds-dark-theme]) .newSession:hover {
-  background: rgb(255 255 255 / 0.2);
 }
 
 .collapsed .newSession {
@@ -450,8 +442,25 @@
   background: transparent;
 }
 
-.collapsed .newSession:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* The New Session fills are hover feedback: a device without hover must not
+   keep the fill after the tap that started the session, so the capability
+   query — not the viewport width — owns every variant. */
+@media (hover: hover) {
+  .newSession:hover {
+    background: var(--dsw-alias-button-floating-hover);
+  }
+
+  :global([data-platform='darwin']) .newSession:hover {
+    background: rgb(255 255 255 / 0.3);
+  }
+
+  :global([data-platform='darwin']) :global([data-ds-dark-theme]) .newSession:hover {
+    background: rgb(255 255 255 / 0.2);
+  }
+
+  .collapsed .newSession:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .newSessionLabel {

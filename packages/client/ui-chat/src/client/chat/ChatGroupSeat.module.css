@@ -18,8 +18,12 @@
   transition: color 100ms ease;
 }
 
-.title:hover {
-  color: var(--dsw-alias-label-secondary);
+/* Hover feedback for hovering pointers: a tapped group title must not keep the
+   lifted colour (skill 6.2). */
+@media (hover: hover) {
+  .title:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
 }
 
 /* The leading box and its glyph ride the body font-size delta so the icon
@@ -63,12 +67,26 @@
   opacity: 0;
 }
 
-.title:is(:hover, :focus-visible) .activityIcon {
+/* The icon cross-fade previews the disclosure on hover and follows keyboard
+   focus; the expanded state below is the touch path, so only the hover half
+   needs the capability gate (a tap must not leave the chevron latched on a
+   collapsed group). */
+.title:focus-visible .activityIcon {
   opacity: 0;
 }
 
-.title:is(:hover, :focus-visible) .chevron {
+.title:focus-visible .chevron {
   opacity: 1;
+}
+
+@media (hover: hover) {
+  .title:hover .activityIcon {
+    opacity: 0;
+  }
+
+  .title:hover .chevron {
+    opacity: 1;
+  }
 }
 
 .title[aria-expanded="true"] .activityIcon {

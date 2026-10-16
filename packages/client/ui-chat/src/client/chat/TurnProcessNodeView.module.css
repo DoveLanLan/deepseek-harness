@@ -21,8 +21,12 @@
   cursor: default;
 }
 
-.root:hover:not(:disabled) {
-  color: var(--dsw-alias-label-secondary);
+/* Hover feedback only where a pointer can hover: tapping the row opens the
+   process, and the colour must not stay lifted afterwards (skill 6.2). */
+@media (hover: hover) {
+  .root:hover:not(:disabled) {
+    color: var(--dsw-alias-label-secondary);
+  }
 }
 
 .chevron {

@@ -47,8 +47,12 @@
   cursor: pointer;
 }
 
-.selector:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* Hover fill for hovering pointers only: a tapped row selector must not keep
+   the tint (skill 6.2). */
+@media (hover: hover) {
+  .selector:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .chevron {

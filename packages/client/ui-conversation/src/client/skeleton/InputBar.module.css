@@ -7,7 +7,15 @@
      the sides narrow with the shared width axis); the bottom gradient mask
      is owned by the chat scroller. No top pad: the composer stack's gap owns
      the space above; the status strip still carries its own margin. */
-  padding: 0 var(--dsh-composer-side-clearance) 4px;
+  /* Bottom clearance: the seat's 4px plus whatever the device's bottom edge
+     costs. The safe-area inset covers the home indicator and the rounded
+     corners; the keyboard inset (installKeyboardInset, published on this
+     element while a soft keyboard is open) covers the part of the layout
+     viewport the keyboard hides, which no CSS length can measure. Both are
+     0px where they do not apply. */
+  padding: 0 var(--dsh-composer-side-clearance) calc(
+    4px + max(var(--dsh-safe-area-bottom, 0px), var(--dsh-composer-keyboard-inset, 0px))
+  );
 }
 
 .dock {
@@ -26,8 +34,13 @@
 .hero {
   /* No bottom pad in the centered hero, but the side clearance must survive:
      the hero wrapper is full-width on narrow viewports, so this padding is
-     the only thing keeping the card off the edges there. */
-  padding: 0 var(--dsh-composer-side-clearance);
+     the only thing keeping the card off the edges there. The device's bottom
+     clearance still applies: a focused hero composer sits over the same
+     keyboard and home indicator as the docked one. */
+  padding: 0 var(--dsh-composer-side-clearance) max(
+    var(--dsh-safe-area-bottom, 0px),
+    var(--dsh-composer-keyboard-inset, 0px)
+  );
 }
 
 .notice {
@@ -76,6 +89,22 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Devices without hover are the ones with an on-screen keyboard, and that
+   keyboard magnifies the whole page when the focused editable computes under
+   16px (iOS Safari). The draft therefore takes the platform's safe input size
+   as a FLOOR — the Settings preference still wins when it asks for more — and
+   keeps the card's 10px leading at whichever size wins, so a 16px draft sits
+   on a 26px line. The composer seat raises its 14-line cap to the same figure
+   (ConversationRoot module). Zoom is never disabled to dodge this. */
+@media (hover: none) {
+  .card {
+    font-size: max(var(--dsh-content-font-size, 14px), var(--dsh-input-font-size-safe, 16px));
+    line-height: calc(
+      24px + max(var(--dsh-content-font-delta, 0px), calc(var(--dsh-input-font-size-safe, 16px) - 14px))
+    );
+  }
+}
+
 /* No-workspace trigger state: an inset 1px dashed outline marks the card as a
    workspace picker rather than a live composer. Keeping the complete stroke
    inside the rounded box prevents clipped corner pixels from reading heavier. */
@@ -103,8 +132,13 @@
   pointer-events: none;
 }
 
-.cardWorkspaceTrigger:hover::after {
-  color: var(--dsw-alias-state-business-primary);
+/* The picker outline brightens only where a pointer can hover; a tap on a
+   touch device must not leave the affordance looking latched
+   (dsh-responsive-ui 6.2). */
+@media (hover: hover) {
+  .cardWorkspaceTrigger:hover::after {
+    color: var(--dsw-alias-state-business-primary);
+  }
 }
 
 .accessory {
@@ -330,8 +364,14 @@
   cursor: pointer;
 }
 
-.add:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover-solid);
+/* Hover-capability gates below: the fill is feedback for a pointer that can
+   hover, and a tap must not leave it behind (dsh-responsive-ui 6.2). Touch
+   devices keep the resting fill; the pressed and disabled states carry the
+   feedback there. */
+@media (hover: hover) {
+  .add:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover-solid);
+  }
 }
 
 .add:disabled {
@@ -362,8 +402,10 @@
   appearance: none;
 }
 
-.select:hover:not(:disabled) {
-  background-color: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .select:hover:not(:disabled) {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .select:disabled {
@@ -395,8 +437,10 @@
   transform: translateY(-2px);
 }
 
-.primary:hover:not(:disabled) {
-  background: var(--dsw-alias-button-info-hover);
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    background: var(--dsw-alias-button-info-hover);
+  }
 }
 
 .primary:disabled {

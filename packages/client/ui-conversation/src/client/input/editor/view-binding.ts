@@ -4,6 +4,7 @@ import type { LexicalEditor } from 'lexical'
 import type { ComposerKeyboard } from '../../contract/draft-editor.ts'
 import type { ComposerBarProps } from '../../contract/slots.ts'
 import type { BusyEnterBehavior } from '../../contract/composer-submission.ts'
+import { isTouchPointer } from '../../pointing.ts'
 import { resolveSubmitMode } from '../submission-policy.ts'
 import { registerComposerKeymap } from './keymap.ts'
 
@@ -116,6 +117,7 @@ export function installDraftKeymap(
     },
     dismissPopup: () => { keyboard.dismissPopup() },
     canSubmit: () => !gate.current.locked && !gate.current.machineBusy,
+    enterInsertsBreak: isTouchPointer,
     submit: (accelerated) => {
       const g = gate.current
       // Empty-draft accelerated Enter acts on the queue instead of the

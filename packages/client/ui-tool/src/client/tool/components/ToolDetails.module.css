@@ -254,3 +254,13 @@
 
 .path:hover { text-decoration: underline; }
 .path:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 3px; }
+
+/* Touch targets: the card's native group and unchanged-line disclosures are
+   26px and 36px tall. Grow the hit area only; the 90deg chevron and the label
+   keep their sizes. */
+@media (pointer: coarse) {
+  .group > summary,
+  .unchanged summary {
+    min-height: 44px;
+  }
+}

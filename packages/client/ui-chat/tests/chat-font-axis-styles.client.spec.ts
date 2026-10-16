@@ -119,13 +119,15 @@ describe('chat flow font-size axis', () => {
     ]))
   })
 
-  it('narrow viewports collapse the stat pills to the action-button circle', () => {
-    // Below 480px the label hides and the pill takes the sibling `.action`
-    // geometry (28px width, 6px padding, centered glyph); the -6px
+  it('narrow columns collapse the stat pills to the action-button circle', () => {
+    // Below 480px of column the label hides and the pill takes the sibling
+    // `.action` geometry (28px width, 6px padding, centered glyph); the -6px
     // label-padding rebate between adjacent pills resets so the icon pair
-    // keeps the row's plain 8px rhythm instead of overlapping.
+    // keeps the row's plain 8px rhythm instead of overlapping. The query is a
+    // container one: the transcript column narrows with the sidebar and the
+    // right panel on any screen.
     const css = read('TurnUsagePanel.module.css')
-    const narrow = /@media \(max-width: 480px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? ''
+    const narrow = /@container \(max-width: 480px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? ''
     expect(narrow).toMatch(/\.trigger \{[^}]*justify-content: center/)
     expect(narrow).toMatch(/\.trigger \{[^}]*width: calc\(28px \+ var\(--dsh-content-font-delta, 0px\)\)/)
     expect(narrow).toMatch(/\.trigger \{[^}]*padding: 6px/)

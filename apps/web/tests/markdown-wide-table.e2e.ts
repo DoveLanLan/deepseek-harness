@@ -19,7 +19,7 @@
 // Session API and seeded cold; a stray stream would fail loud with
 // NO_ADAPTER.
 import { fileURLToPath } from 'node:url'
-import type { Browser, Page } from 'playwright'
+import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -176,6 +176,20 @@ interface TableReading {
   tableLeft: number
 }
 
+/**
+ * A scroller's computed overflow state: the two ordinary properties the reveal
+ * toggles — `overflow-x` itself (Chromium never repaints state-conditioned
+ * scrollbar styles) and the bar height the resting arm reserves.
+ * @param scroller - the table wrapper to read.
+ * @returns both computed values, joined for a single comparison.
+ */
+function readOverflowState(scroller: Locator): Promise<string> {
+  return scroller.evaluate(element => [
+    getComputedStyle(element).overflowX,
+    getComputedStyle(element).paddingBottom,
+  ].join(' '))
+}
+
 /** Read all three tables' relations in one pass. */
 function readTables(page: Page): Promise<TableReading[]> {
   return page.evaluate((markers) => {
@@ -185,13 +199,16 @@ function readTables(page: Page): Promise<TableReading[]> {
       if (wrapper === undefined) throw new Error(`table wrapper ${marker} not rendered`)
       const table = wrapper.querySelector('table')
       if (table === null) throw new Error(`table ${marker} not rendered`)
+      // The breakout's alignment lead lives on the frame, which is also the
+      // element the hook marks; the scroller inside it is only the moving part.
+      const frame = wrapper.closest<HTMLElement>('[class*="md-table-wide"]')
       return {
         marker,
         overflow: wrapper.scrollWidth - wrapper.clientWidth,
         clientWidth: wrapper.clientWidth,
         height: wrapper.getBoundingClientRect().height,
-        wideHook: wrapper.classList.contains('md-table-wide'),
-        paddingLeft: Number.parseFloat(getComputedStyle(wrapper).paddingLeft),
+        wideHook: frame !== null,
+        paddingLeft: Number.parseFloat(getComputedStyle(frame ?? wrapper).paddingLeft),
         tableLeft: table.getBoundingClientRect().left,
       }
     })
@@ -374,32 +391,98 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
-  it('reveals the wide table scrollbar on hover only', async () => {
+  it('reveals the wide table scrollbar on hover only, for a hovering pointer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-markdown-wide-table-scrollbar'))
     await sweep()
     await settleAt(1680)
     const wide = page.locator('[class*="tableScroll"]', { hasText: WIDE_MARKER })
-    // Chromium never repaints state-conditioned scrollbar STYLES, so the
-    // hover reveal toggles overflow-x itself; the resting padding matches
-    // the bar height so the swap does not move anything below. Both are
-    // ordinary properties whose computed values follow :hover.
-    const overflowState = () => wide.evaluate(element => [
-      getComputedStyle(element).overflowX,
-      getComputedStyle(element).paddingBottom,
-    ].join(' '))
+    // This arm is scoped to `@media (hover: hover)`; a primary input that
+    // cannot hover rests at `overflow-x: auto` instead, which the touch case
+    // below asserts. Chromium never repaints state-conditioned scrollbar
+    // STYLES, so the hover reveal toggles overflow-x itself; the resting
+    // padding matches the bar height so the swap does not move anything
+    // below. Both are ordinary properties whose computed values follow
+    // :hover.
     // Park the pointer away and drop focus: the keyboard case above leaves
     // the wrapper focused, and focus-visible also reveals the bar.
     await page.mouse.move(4, 4)
     await wide.evaluate((element) => { element.blur() })
-    await expect.poll(overflowState, { timeout: 5_000 }).toBe('hidden 5px')
+    await expect.poll(() => readOverflowState(wide), { timeout: 5_000 }).toBe('hidden 5px')
     // Resting hidden overflow keeps the scroll position reachable and intact.
     expect(await wide.evaluate(element => element.scrollLeft)).toBeGreaterThanOrEqual(0)
     await wide.hover()
-    await expect.poll(overflowState, { timeout: 5_000 }).toBe('scroll 0px')
+    await expect.poll(() => readOverflowState(wide), { timeout: 5_000 }).toBe('scroll 0px')
     // Pointer leaves: the bar rests hidden again.
     await page.mouse.move(4, 4)
-    await expect.poll(overflowState, { timeout: 5_000 }).toBe('hidden 5px')
+    await expect.poll(() => readOverflowState(wide), { timeout: 5_000 }).toBe('hidden 5px')
     expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
+
+  it('rests scrollable where the primary input cannot hover', async () => {
+    // A touch phone has no gesture that produces :hover — and Chromium does
+    // not match :focus-visible for taps either — so the pointer affordance
+    // above would leave a wide table's overflow columns unreachable. The
+    // no-hover arm of the media query keeps the wrapper scrollable at rest.
+    const touchPage = await browser.newPage({
+      // Navigate while the sidebar still has its tree on screen, then narrow
+      // to the 390 CSS px acceptance minimum (dsh-responsive-ui §1) before
+      // measuring. The gate under test is the input's hover capability, which
+      // no viewport width changes.
+      viewport: { width: 1280, height: 900 },
+      hasTouch: true,
+      isMobile: true,
+      deviceScaleFactor: 3,
+      locale: 'en-US',
+    })
+    const touchTripwire = watchConsole(touchPage)
+    try {
+      onTestFailed(() => saveFailureShot(touchPage, 'web-e2e-markdown-wide-table-touch'))
+      await touchPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await touchPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const groupRow = touchPage.locator('[role="treeitem"]').first()
+      await groupRow.waitFor({ timeout: 15_000 })
+      await groupRow.click()
+      const sessionRow = touchPage.locator('[role="treeitem"]').nth(1)
+      await sessionRow.waitFor({ timeout: 10_000 })
+      await sessionRow.click()
+      await touchPage.getByText(TAIL_MARKER, { exact: true }).waitFor({ timeout: 15_000 })
+      await touchPage.setViewportSize({ width: 390, height: 844 })
+      await touchPage.getByText(TAIL_MARKER, { exact: true }).waitFor({ timeout: 15_000 })
+      // The emulated input must actually report a non-hovering pointer, or
+      // this case would silently re-assert the desktop arm above.
+      expect(await touchPage.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
+      const wide = touchPage.locator('[class*="tableScroll"]', { hasText: WIDE_MARKER })
+      // No hover, no reserved bar height: overlay scrollbars take no layout.
+      await expect.poll(() => readOverflowState(wide), { timeout: 5_000 }).toBe('auto 0px')
+      // Resting scrollable is the point — the overflow columns stay reachable.
+      expect(await wide.evaluate(element => element.scrollWidth - element.clientWidth))
+        .toBeGreaterThan(1)
+      // …and the frame says so. The shadow is the only signal a touch reader
+      // gets: the native bar is painted only while the finger moves, and a
+      // reader who cannot see that columns are hidden has no reason to pan.
+      const frame = wide.locator('xpath=..')
+      const shadowOpacity = (side: string) => frame.evaluate(
+        (element, which) => getComputedStyle(
+          element.querySelector<HTMLElement>(`[data-side="${which}"]`)!,
+        ).opacity,
+        side,
+      )
+      await expect.poll(() => frame.getAttribute('data-table-edges'), { timeout: 5_000 })
+        .toBe('right')
+      await expect.poll(() => shadowOpacity('right'), { timeout: 5_000 }).toBe('1')
+      expect(await shadowOpacity('left')).toBe('0')
+      // Scrolled to the end, the shadow swaps sides rather than staying put.
+      await wide.evaluate((element) => { element.scrollLeft = element.scrollWidth })
+      await expect.poll(() => wide.evaluate(element => element.scrollLeft), { timeout: 5_000 })
+        .toBeGreaterThan(0)
+      await expect.poll(() => frame.getAttribute('data-table-edges'), { timeout: 5_000 })
+        .toBe('left')
+      await expect.poll(() => shadowOpacity('left'), { timeout: 5_000 }).toBe('1')
+      expect(await shadowOpacity('right')).toBe('0')
+      expect(touchTripwire.pageErrors).toEqual([])
+    } finally {
+      await touchPage.close()
+    }
   }, 120_000)
 
   it('keeps a fitting wide table and its following paragraph stationary during interaction', async () => {
@@ -409,7 +492,7 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
     await short.evaluate((element) => { element.scrollIntoView({ block: 'center', behavior: 'instant' }) })
     await page.mouse.move(4, 4)
     await short.evaluate((element) => { element.blur() })
-    expect(await short.evaluate(element => element.classList.contains('md-table-wide'))).toBe(true)
+    expect(await short.evaluate(element => element.closest('[class*="md-table-wide"]') !== null)).toBe(true)
     expect(await short.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     const position = () => short.evaluate((element) => {
       const following = element.nextElementSibling

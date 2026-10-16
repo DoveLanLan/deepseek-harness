@@ -1,7 +1,8 @@
 /**
  * Composer keymap over the Lexical command layer: menu arbitration
- * (arrows/escape/enter), space adjudication, the Enter submit gesture, and
- * paste routing. Registered at CRITICAL priority so it decides before
+ * (arrows/escape/enter), space adjudication, the Enter submit gesture — a line
+ * break instead on devices without hover, whose keyboard has no Shift key —
+ * and paste routing. Registered at CRITICAL priority so it decides before
  * @lexical/plain-text's own Enter/paste defaults; a handler returning false
  * falls through to those defaults (Shift+Enter's line break, ordinary
  * spaces, text paste the bar routes itself).
@@ -32,6 +33,8 @@ export interface ComposerKeymapHandlers {
   dismissPopup(): void
   /** Whether Enter may submit right now (locked/busy states refuse). */
   canSubmit(): boolean
+  /** Whether a plain Enter keeps its line break instead of submitting (no-hover devices). */
+  enterInsertsBreak(): boolean
   /** Plain Enter submits; exactly Ctrl+Enter or Cmd+Enter selects accelerated delivery. */
   submit(accelerated: boolean): void
   /**
@@ -150,6 +153,12 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
         event?.preventDefault()
         return true
       }
+      // An on-screen keyboard has no Shift key: on a device without hover a
+      // plain Enter falls through to the line break and the Send button is
+      // the send gesture. Ctrl/Cmd+Enter keeps submitting the accelerated way
+      // on every device, and a synthesized Enter (no DOM event) keeps the
+      // desktop gesture it has always had.
+      if (event !== null && !event.ctrlKey && !event.metaKey && handlers.enterInsertsBreak()) return false
       event?.preventDefault()
       if (event?.repeat === true) return true // held-down Enter must not machine-gun sends
       if (!handlers.canSubmit()) return true

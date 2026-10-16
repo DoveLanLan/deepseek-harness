@@ -86,20 +86,25 @@
   height: calc(17px + var(--dsh-content-font-delta, 0px));
 }
 
-.action:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
-}
-
 /* Unavailable stays focusable and hoverable so Tooltip can explain why. */
 .action[data-unavailable] {
   cursor: default;
   opacity: 0.4;
 }
 
-.action[data-unavailable]:hover {
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
+/* Hover fills ride the same capability query as the reveal above: a tapped
+   action must not keep its highlight, and the override that cancels the fill
+   for an unavailable action stays with the rule it cancels. */
+@media (hover: hover) {
+  .action:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-secondary);
+  }
+
+  .action[data-unavailable]:hover {
+    background: transparent;
+    color: var(--dsw-alias-label-tertiary);
+  }
 }
 
 .visuallyHidden {

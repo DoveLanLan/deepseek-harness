@@ -97,6 +97,10 @@
   min-width: 0;
   color: var(--dsw-alias-label-tertiary);
   transition: color 100ms ease;
+  /* Anonymous inline-size container for this card's own narrow-row
+     degradation, matching ToolRow's: the row is a column-flex child of .card,
+     so its inline size comes from its parent. */
+  container-type: inline-size;
 }
 
 .root:hover {
@@ -136,8 +140,10 @@
   color: inherit;
 }
 
-/* Hover preview on the expandable row: the idle icon crossfades (100ms) into
-   a down chevron before the row is opened — same overlay as ToolRow. */
+/* Pointer preview on the expandable row: the idle icon crossfades (100ms) into
+   a down chevron before the row is opened — same overlay as ToolRow. Gated to
+   hover, because a tap would otherwise leave the swapped glyph on screen after
+   the touch that caused it (skill 6.2). */
 .iconIdle {
   display: inline-flex;
   opacity: 1;
@@ -152,12 +158,28 @@
   transition: opacity 100ms ease;
 }
 
-.root:hover .iconIdle {
-  opacity: 0;
+@media (hover: hover) {
+  .root:hover .iconIdle {
+    opacity: 0;
+  }
+
+  .root:hover .chevronHover {
+    opacity: 1;
+  }
 }
 
-.root:hover .chevronHover {
-  opacity: 1;
+/* Touch has no hover to preview the expansion with, so the collapsed glyph is
+   the chevron itself: the same swap the pointer preview performs, held for as
+   long as the row stays collapsed. The business glyph keeps the row's title
+   text to name the tool. */
+@media (hover: none) {
+  .iconIdle {
+    display: none;
+  }
+
+  .chevronHover {
+    opacity: 1;
+  }
 }
 
 .title {
@@ -194,10 +216,30 @@
   color: var(--dsw-alias-state-warn-label);
 }
 
-/* Hover-revealed Inspect pill under the expanded terminal's bottom-left —
-   ToolRow's .bodyWrap/.inspectButton treatment, replicated per the registrant
-   posture: real flow (it reserves its line), revealed by hovering anywhere on
-   the tool call — title row included — or by keyboard focus. */
+/* The same narrow-row degradation ToolRow applies, at the same row width: this
+   view draws the same [kind label][separator][summary] line, so it sheds the
+   same two elements. The threshold's measurements and rationale live in
+   ToolRow.module.css. */
+@container (max-width: 360px) {
+  /* Clipped rather than `display: none`: the label stays in the row's
+     accessible name on the narrow frames this query covers. */
+  .title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .sep {
+    display: none;
+  }
+}
+
+/* Jump to the trajectory record: ToolRow's .bodyWrap/.inspectButton
+   treatment, replicated per the registrant posture: real flow (it reserves its
+   line), revealed by hovering anywhere on the tool call — title row included —
+   or by keyboard focus. */
 .bodyWrap {
   display: flex;
   flex-direction: column;
@@ -219,11 +261,22 @@
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 100ms ease;
 }
 
-.card:hover .inspectButton,
+/* Same capability gate as ToolRow's pill: a device without hover keeps the
+   entry visible rather than hiding the card's only path to the full record
+   behind a gesture it cannot perform (skill 6.1). */
+@media (hover: hover) {
+  .inspectButton {
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+
+  .card:hover .inspectButton {
+    opacity: 1;
+  }
+}
+
 .inspectButton:focus-visible {
   opacity: 1;
 }
@@ -233,6 +286,19 @@
 .inspectButton:hover {
   background: var(--dsw-alias-interactive-bg-hover-solid);
   color: var(--dsw-alias-label-primary);
+}
+
+/* Touch targets: the expandable summary line and the Inspect pill are this
+   card's controls. Grow the hit area only — the 14px leading glyph, the row's
+   type, and the pill's label keep their sizes. */
+@media (pointer: coarse) {
+  .root[data-expandable] {
+    min-height: 44px;
+  }
+
+  .inspectButton {
+    min-height: 44px;
+  }
 }
 
 

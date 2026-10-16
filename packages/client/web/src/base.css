@@ -8,6 +8,19 @@ body,
   margin: 0;
 }
 
+/* Mobile browsers change the visible viewport as their own chrome shows and
+   hides. The dynamic unit tracks it where the engine has the unit, so the
+   fixed-height shell keeps its composer seat above the browser UI; the
+   percentage chain above remains the fallback, and the frame inside stays the
+   only owner of scrolling either way. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
 body {
   font-family: var(
     --dsw-font-family,

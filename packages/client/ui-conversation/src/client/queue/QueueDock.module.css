@@ -231,8 +231,12 @@
   cursor: pointer;
 }
 
-.action:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* Hover feedback only where a pointer can hover; a tapped queue action must
+   not keep the fill (skill 6.2). */
+@media (hover: hover) {
+  .action:hover:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .action:focus-visible {

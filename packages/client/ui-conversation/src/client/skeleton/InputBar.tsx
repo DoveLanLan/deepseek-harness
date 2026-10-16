@@ -39,6 +39,7 @@ import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
 import { isImageMediaType } from '../service.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { observeControlRow } from './control-row-layout.ts'
+import { installKeyboardInset } from './keyboard-inset.ts'
 import css from './InputBar.module.css'
 
 export type InputBarProps = ComposerBarProps
@@ -126,6 +127,12 @@ export const InputBar = memo(function InputBar({
     if (row === null) return
     return observeControlRow(row)
   }, [])
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  // The soft keyboard hides the layout viewport's bottom without changing it,
+  // so the clearance is measured from the visual viewport and published on
+  // this element as a custom property. Devices that can hover install nothing
+  // and the property's fallback keeps their clearance unchanged.
+  useEffect(() => installKeyboardInset(rootRef.current), [])
   const cardRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -372,7 +379,7 @@ export const InputBar = memo(function InputBar({
         : planActive ? t('placeholder.plan') : t('placeholder.default'))
 
   return (
-    <div className={clsx(css.root, variant === 'hero' && css.hero)}>
+    <div ref={rootRef} className={clsx(css.root, variant === 'hero' && css.hero)}>
       {toast !== null && (
         <Toast
           key={toast.seq}

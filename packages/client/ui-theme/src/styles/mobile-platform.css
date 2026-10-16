@@ -1,0 +1,25 @@
+/* Mobile browser platform floors: engine requirements, not steps on the type
+ * scale, so no user preference or component restyle may move them.
+ *
+ * --dsh-input-font-size-safe is the editable-region floor. iOS Safari zooms the
+ * whole page when a focused input, textarea, or contenteditable region computes
+ * below 16px, and it does not zoom back out on blur, so the composer and the
+ * other text fields take this value instead of the user's content size
+ * (--dsh-content-font-size scales down to 10px). It is a lower bound: a
+ * consumer that must also honor a larger user preference composes
+ * max(var(--dsh-input-font-size-safe, 16px), var(--dsh-content-font-size, 16px))
+ * at its own site rather than redefining this token.
+ *
+ * --dsh-safe-area-* mirror the cutout, the home indicator, and the rounded
+ * corners for the fixed-height shell. They resolve to 0px on engines without
+ * env() and on viewports without a safe area (desktop browsers, Electron), so
+ * consumers apply them unconditionally. The insets are non-zero only for a
+ * document that declares viewport-fit=cover (apps/web/index.html), which lets
+ * the shell paint edge to edge while its content stays clear of system UI. */
+:root {
+  --dsh-input-font-size-safe: 16px;
+  --dsh-safe-area-top: env(safe-area-inset-top, 0px);
+  --dsh-safe-area-right: env(safe-area-inset-right, 0px);
+  --dsh-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --dsh-safe-area-left: env(safe-area-inset-left, 0px);
+}

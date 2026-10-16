@@ -102,23 +102,44 @@
   top: var(--dsh-compaction-header-height);
 }
 
-/* Pinned, the toggle needs an opaque hover fill: the default translucent hover
-   token below would let the scrolling prose show through the moment the pointer
-   lands on the toggle to collapse it. */
-.compactionRow:has(.compactionBody) .compactionButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover-solid);
+/* Hover fills and the disclosure cross-fade belong to a pointer that can
+   hover: a tap must not leave the toggle lit. Devices without hover keep the
+   chevron showing instead, so the toggle still reads as one — the keyboard's
+   focus-visible reveal stays on every device. */
+@media (hover: hover) {
+  .compactionRow:has(.compactionBody) .compactionButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover-solid);
+  }
+
+  .compactionButton:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
+
+  .compactionButton:not(:disabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  .compactionButton:not(:disabled):hover .compactionContextIcon {
+    opacity: 0;
+  }
+
+  .compactionButton:not(:disabled):hover .compactionDisclosureIcon {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .compactionContextIcon {
+    opacity: 0;
+  }
+
+  .compactionDisclosureIcon {
+    opacity: 1;
+  }
 }
 
 .compactionButton:not(:disabled) {
   cursor: pointer;
-}
-
-.compactionButton:hover {
-  color: var(--dsw-alias-label-secondary);
-}
-
-.compactionButton:not(:disabled):hover {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .compactionLeading {
@@ -150,12 +171,12 @@
   opacity: 0;
 }
 
-.compactionButton:not(:disabled):hover .compactionContextIcon,
+/* Keyboard reveal of the same chevron: focus-visible is not a hover gesture,
+   so it stays outside the capability query. */
 .compactionButton:not(:disabled):focus-visible .compactionContextIcon {
   opacity: 0;
 }
 
-.compactionButton:not(:disabled):hover .compactionDisclosureIcon,
 .compactionButton:not(:disabled):focus-visible .compactionDisclosureIcon {
   opacity: 1;
 }
@@ -231,8 +252,12 @@
   transition: transform 120ms ease;
 }
 
-.retrySummary:hover {
-  color: var(--dsw-alias-label-secondary);
+/* Same capability gate as the compaction toggle: the retry summary is a
+   control, and its lifted colour must not stay after a tap. */
+@media (hover: hover) {
+  .retrySummary:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

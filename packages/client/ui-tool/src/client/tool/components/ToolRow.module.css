@@ -9,6 +9,14 @@
 .root {
   display: flex;
   flex-direction: column;
+  /* Anonymous inline-size container (CSS Modules hashes container names per
+     module, so a named one here could never be queried from another sheet):
+     the row's own width, not the viewport, decides the narrow-row degradation
+     below — the transcript column is narrower than the frame on every narrow
+     layout. The root is a column-flex child of the chat flow, so its inline
+     size comes from its parent and inline-size containment cannot collapse
+     it. */
+  container-type: inline-size;
 }
 
 .leading {
@@ -103,6 +111,38 @@
   cursor: pointer;
 }
 
+/* Narrow-row degradation, keyed to the row's own width: below this point the
+   chrome the summary competes with is worth more to the primary text than the
+   chrome is. On the 390px acceptance viewport the row is ~270px wide (the
+   334px center column minus the transcript's 32px padding per side), and the
+   parts that cannot shrink — the 22px leading box, the `flex: none` kind
+   label, and the separator's 2px dot in 16px margins — take 62-92px of it. A
+   workspace-relative path such as `src/client/tool/components/ToolRow.module.css`
+   measures 276px at the secondary tier, so a row needs ~368px to show one
+   beside that chrome; 360px, the threshold the ZCode remote uses, degrades
+   just before that. It fires only for rows this narrow: a viewport up to
+   ~480px with the 56px sidebar rail, or a center column squeezed to its 400px
+   floor by an open right panel. */
+@container (max-width: 360px) {
+  /* The kind label leaves the flex line but keeps its text in the row's
+     accessible name (clipped, not `display: none`): named by its icon alone, a
+     narrow row would stop saying which tool it is. */
+  .title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  /* The decorative dot between the kind label and the primary text
+     (aria-hidden, data-shimmer-decoration); without the label it would lead
+     the row. */
+  .sep {
+    display: none;
+  }
+}
+
 /* Error row's collapsed summary: the failure's first line in the error color. */
 .errorSummary {
   color: var(--dsw-alias-state-error-primary);
@@ -119,10 +159,10 @@
   flex-direction: column;
 }
 
-/* Hover-revealed jump to the trajectory record: a small pill in real flow
-   under the expanded body's bottom-left corner (it reserves its line, so
-   revealing never shifts layout); revealed by hovering anywhere on the tool
-   call — title row included — or by keyboard focus. */
+/* Jump to the trajectory record: a small pill in real flow under the expanded
+   body's bottom-left corner (it reserves its line, so revealing never shifts
+   layout). Hovering anywhere on the tool call — title row included — or
+   keyboard focus reveals it. */
 .inspectButton {
   display: inline-flex;
   align-self: flex-start;
@@ -140,11 +180,23 @@
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 100ms ease;
 }
 
-.root:hover .inspectButton,
+/* The hover dwell is a pointer capability, not a width: a device without hover
+   keeps the pill visible (skill 6.1). Hiding it there would leave the
+   transcript's only path to a tool call's full record unreachable, since a tap
+   cannot reproduce a hover. */
+@media (hover: hover) {
+  .inspectButton {
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+
+  .root:hover .inspectButton {
+    opacity: 1;
+  }
+}
+
 .inspectButton:focus-visible {
   opacity: 1;
 }
@@ -164,6 +216,20 @@
 .inspectButton:hover {
   background: var(--dsw-alias-interactive-bg-hover-solid);
   color: var(--dsw-alias-label-primary);
+}
+
+/* Touch targets: the disclosure row and the Inspect pill are the tool card's
+   controls, and both are far under 44px at the default size. Grow the hit
+   area only — the leading glyph, the row's type, and the pill's label keep
+   their sizes. */
+@media (pointer: coarse) {
+  .row {
+    min-height: 44px;
+  }
+
+  .inspectButton {
+    min-height: 44px;
+  }
 }
 
 /* Expanded-body scroll wrapper for the run_code CodeBlock; the IN/OUT card

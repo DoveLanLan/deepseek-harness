@@ -24,7 +24,8 @@ describe('keymap keydown routing', () => {
     editor.setRootElement(first)
     const unregister = registerComposerKeymap(editor, {
       arbitrate: () => 'pass', space: () => false, dismissPopup: () => {},
-      canSubmit: () => false, submit: () => {}, intakeFiles: () => {}, pasteText: () => {},
+      canSubmit: () => false, enterInsertsBreak: () => false, submit: () => {},
+      intakeFiles: () => {}, pasteText: () => {},
     })
     onTestFinished(unregister)
     fireEvent.compositionStart(first)
@@ -57,6 +58,7 @@ describe('keymap keydown routing', () => {
       space: () => false,
       dismissPopup: () => {},
       canSubmit: () => true,
+      enterInsertsBreak: () => false,
       submit,
       intakeFiles: () => {},
       pasteText: () => {},
@@ -87,7 +89,7 @@ describe('keymap keydown routing', () => {
     const arbitrate = vi.fn(() => 'pass' as const)
     onTestFinished(registerComposerKeymap(editor, {
       arbitrate, space: () => false, dismissPopup: () => {}, canSubmit: () => true,
-      submit, intakeFiles: () => {}, pasteText: () => {},
+      enterInsertsBreak: () => false, submit, intakeFiles: () => {}, pasteText: () => {},
     }))
     editor.update(() => {
       const paragraph = $createParagraphNode().append($createTextNode('unsent draft'))
@@ -125,6 +127,7 @@ describe('keymap keydown routing', () => {
       space: () => false,
       dismissPopup: () => {},
       canSubmit: () => true,
+      enterInsertsBreak: () => false,
       submit: () => {},
       intakeFiles: () => {},
       pasteText: () => {},

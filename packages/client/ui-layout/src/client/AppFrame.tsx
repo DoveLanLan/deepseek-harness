@@ -19,7 +19,7 @@ import type { ReactNode } from 'react'
 import type {
   PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { CENTER_MIN, clampWidth, computeColumns, RIGHTBAR_DEFAULT_RATIO, RIGHTBAR_MAX_RATIO, RIGHTBAR_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT } from './columns.ts'
+import { CENTER_MIN, clampWidth, computeColumns, drawerWidth, RIGHTBAR_DEFAULT_RATIO, RIGHTBAR_MAX_RATIO, RIGHTBAR_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DRAWER_WIDTH } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -31,9 +31,25 @@ export type AppFrameProps =
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'common'>
 
+/**
+ * Whether a surface behind the narrow drawer is taken out of the interaction
+ * and accessibility trees. React 18 forwards `inert` only as an attribute
+ * string (a boolean is dropped) and its JSX types predate the attribute, so
+ * covered surfaces spread this instead of setting the prop.
+ * @param covered - whether the surface is behind the drawer.
+ * @returns the inert attribute, or an empty spread.
+ */
+function inertWhileCovered(covered: boolean): { inert?: string } {
+  return covered ? { inert: '' } : {}
+}
+
 /** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
+function CenterColumn(props: { children?: ReactNode; covered: boolean }) {
+  return (
+    <div className={css.centerCol} aria-hidden={props.covered || undefined} {...inertWhileCovered(props.covered)}>
+      {props.children}
+    </div>
+  )
 }
 
 /** Subscribe to the main key without subscribing the column frame to each panel id. */
@@ -47,8 +63,12 @@ function MainPanel({ usePanelInfo, renderSlot }: Pick<PropsRuntime<'root'>, 'use
  * occupant's panel is positioned against the column's right edge, which never
  * moves, so it can hang over the centre when there is no track.
  */
-function RightbarColumn(props: { children?: ReactNode }) {
-  return <div className={css.rightbarCol} data-rightbar-col>{props.children}</div>
+function RightbarColumn(props: { children?: ReactNode; covered: boolean }) {
+  return (
+    <div className={css.rightbarCol} data-rightbar-col aria-hidden={props.covered || undefined} {...inertWhileCovered(props.covered)}>
+      {props.children}
+    </div>
+  )
 }
 
 /**
@@ -138,7 +158,14 @@ export function AppFrame({
     let raf: number | null = null
     let disposed = false
     const measure = () => {
+      // The frame's horizontal padding carries the safe-area insets, and the
+      // columns live inside it: pricing the border box would hand the grid more
+      // width than its content box has and push the right column under a
+      // landscape cutout. Both paddings resolve to 0px without env() support,
+      // so desktop frames keep measuring exactly their own box.
+      const style = getComputedStyle(el)
       const width = el.getBoundingClientRect().width
+        - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight)
       if (width > 0) actions.setViewportWidth(width)
     }
     measure()
@@ -158,19 +185,22 @@ export function AppFrame({
   }, [actions])
 
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
-  const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0
-  const sidebarPreference = sidebarCollapsed
-    ? 0
-    : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
+  // Below the breakpoint the column is always the collapsed rail (or nothing,
+  // where the platform hides it): a manual toggle opens the overlay drawer
+  // instead of taking a preference-wide track, so the conversation keeps its
+  // width underneath.
+  const drawerOpen = narrow && layoutInfo.narrowExpanded
+  const sidebarCollapsed = narrow || layoutInfo.sidebar === 0
+  const sidebarPreference = sidebarCollapsed ? 0 : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Desktop reopen controls occupy the frame's shell.leading seat (macOS) or
   // the Windows caption row; neither platform keeps an icon rail.
   const darwin = document.documentElement.dataset.platform === 'darwin'
   const collapsedWidth = darwin
     || document.documentElement.hasAttribute('data-windows-titlebar') ? 0 : SIDEBAR_COLLAPSED
-  // Opening on a narrow frame collapses the left sidebar. Eligibility must
-  // include that space before the occupant's first shown report arrives.
-  const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth)
+  // A narrow frame prices the sidebar at its rail in both states, so right-panel
+  // eligibility is the same before and after the drawer opens.
+  const normal = computeColumns(viewport, sidebarPreference, rightbarPreference, collapsedWidth)
   const cols = computeColumns(viewport, sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0, collapsedWidth)
   const colsRef = useRef(cols)
   colsRef.current = cols
@@ -231,6 +261,18 @@ export function AppFrame({
     actions.setRightbar(rightbarBase.current - dx)
   }, [actions])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
+  // The drawer is dismissed by its scrim, by Escape, and by the store's
+  // navigation/right-panel paths; none of them rewrites the wide width
+  // preference, so re-widening restores the pre-squeeze layout.
+  const closeDrawer = useCallback(() => { actions.closeNarrowSidebar() }, [actions])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeDrawer()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [drawerOpen, closeDrawer])
   // The rendered template lets the grid solve the squeeze natively: the centre
   // declares its protected minimum and the right column bids up to the clamped
   // preference, so a window resize lands in the same layout pass as the frame
@@ -239,10 +281,11 @@ export function AppFrame({
   // whole and was corrected two frames later — visible jitter. cols keeps only
   // the discrete decisions (track present, collapse state) and the drag base.
   const rightbarMax = cols.rightbar === 0 ? 0 : clampWidth(rightbarPreference, RIGHTBAR_MIN, viewport * RIGHTBAR_MAX_RATIO)
-  const sidebar = useMemo(() => renderSlot('sidebar', {
-    collapsed: sidebarCollapsed,
-    width: cols.sidebar,
-  }), [renderSlot, sidebarCollapsed, cols.sidebar])
+  // A narrow expansion renders the full sidebar inside the overlay at the
+  // resolved min(percentage, ceiling) width; every other case is the track.
+  const sidebar = useMemo(() => renderSlot('sidebar', drawerOpen
+    ? { collapsed: false, width: drawerWidth(viewport) }
+    : { collapsed: sidebarCollapsed, width: cols.sidebar }), [renderSlot, drawerOpen, viewport, sidebarCollapsed, cols.sidebar])
   const main = useMemo(() => (
     <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
   ), [usePanelInfo, renderSlot])
@@ -262,10 +305,12 @@ export function AppFrame({
       style={{
         ...(document.documentElement.hasAttribute('data-windows-titlebar')
           ? { '--dsh-windows-sidebar-width': `${cols.sidebar}px` } : {}),
+        ...(drawerOpen ? { '--dsh-sidebar-drawer-width': SIDEBAR_DRAWER_WIDTH } : {}),
         gridTemplateColumns:
           `${cols.sidebar}px minmax(${cols.rightbar === 0 ? 0 : CENTER_MIN}px, 1fr) minmax(0px, ${rightbarMax}px)`,
       }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-sidebar-drawer={drawerOpen || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
       data-rightbar-fullscreen={layoutInfo.rightbarFullscreen || undefined}
       data-rightbar-instant={layoutInfo.rightbarInstant || undefined}
@@ -281,21 +326,28 @@ export function AppFrame({
         {sidebar}
       </div>
       <>
-        <CenterColumn>{main}</CenterColumn>
-        <RightbarColumn>
+        <CenterColumn covered={drawerOpen}>{main}</CenterColumn>
+        <RightbarColumn covered={drawerOpen}>
           {renderSlot('rightbar', { width: normal.rightbar, viewportWidth: viewport, canShow: normal.rightbar > 0 })}
         </RightbarColumn>
       </>
-      <div className={css.bottomRow} data-shell-bottom>
+      <div className={css.bottomRow} data-shell-bottom aria-hidden={drawerOpen || undefined} {...inertWhileCovered(drawerOpen)}>
         {renderSlot('shell.bottom', {})}
       </div>
       <div className={css.overlayLayer} data-shell-overlay>
         {overlays}
       </div>
       {leadingMounted && (
-        <div className={css.leadingSeat} data-shell-leading>
+        <div className={css.leadingSeat} data-shell-leading aria-hidden={drawerOpen || undefined} {...inertWhileCovered(drawerOpen)}>
           {leading}
         </div>
+      )}
+      {/* The drawer's dismissal surface: a full-frame button, so a tap, a
+          keyboard activation, and an assistive-technology activation all close
+          it. It renders after the covered columns and before the drawer, which
+          the shell's z-index ordering in AppFrame.module.css completes. */}
+      {drawerOpen && (
+        <button type="button" className={css.drawerScrim} aria-label={t('close')} onClick={closeDrawer} />
       )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}

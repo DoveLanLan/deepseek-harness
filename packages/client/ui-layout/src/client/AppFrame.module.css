@@ -3,6 +3,20 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
+  /* The frame is the outer layer of the shrink chain: a host that sizes it
+     (flex or grid item) must be able to narrow it below its tracks' px
+     minimums instead of pushing the overflow outside the window. */
+  min-width: 0;
+  /* The shell paints edge to edge under viewport-fit=cover, and this inset holds
+     its content clear of the status bar and the landscape cutout. Both sides
+     resolve to 0px without env() support (desktop browsers, Electron), and
+     border-box keeps the inset inside the 100% height, so the document never
+     gains a second scrollbar. The bottom inset stays with the composer that sits
+     against it: padding it here too would inset that surface twice. */
+  box-sizing: border-box;
+  padding-top: var(--dsh-safe-area-top, 0px);
+  padding-right: var(--dsh-safe-area-right, 0px);
+  padding-left: var(--dsh-safe-area-left, 0px);
   overflow: hidden;
   background: var(--dsw-alias-bg-base);
 }
@@ -22,11 +36,13 @@
   transition: none;
 }
 
-/* The Windows caption row remains outside every conversation and file panel. */
+/* The Windows caption row remains outside every conversation and file panel.
+   Its band composes with the safe area: the caption sits below the window's top
+   strip, so a host that reports one adds to it instead of replacing it. */
 :global([data-windows-titlebar]) .frame {
   --dsh-windows-content-radius: 16px;
   box-sizing: border-box;
-  padding-top: var(--dsh-windows-titlebar-height);
+  padding-top: calc(var(--dsh-windows-titlebar-height) + var(--dsh-safe-area-top, 0px));
   background: var(--dsw-specific-sidebar-fill);
 }
 
@@ -287,4 +303,49 @@
 
 .overlayLayer > * {
   pointer-events: auto;
+}
+
+/*
+ * Narrow overlay drawer (columns.ts SIDEBAR_AUTO_COLLAPSE). Below the breakpoint
+ * the sidebar column is the collapsed rail, and a manual expansion renders the
+ * full sidebar as this overlay instead of widening the track: the conversation
+ * underneath keeps its width, and the TSX takes the covered columns out of the
+ * interaction tree. The width is the resolved min(percentage, ceiling) the frame
+ * publishes, so the overlay fills a phone frame without overflowing it and stays
+ * a panel on a narrow tablet. Placed last in this sheet on purpose: it overrides
+ * the per-platform sidebar rail fills, which otherwise tie on specificity.
+ */
+.frame[data-sidebar-drawer] .sidebarCol {
+  /* The columns' row: window chrome above and shell.bottom below stay in place. */
+  grid-area: 1 / 1 / 2 / -1;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 66;
+  width: var(--dsh-sidebar-drawer-width);
+  min-width: 0;
+  border: 0;
+  background: var(--dsw-specific-sidebar-fill);
+  box-shadow: var(--dsw-elevation-panel);
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * The drawer's dismissal surface: a real full-frame button, so a tap, a keyboard
+ * activation, and an assistive-technology activation all close the overlay. It
+ * sits above the fullscreen right panel (40) and the docking kit's floating
+ * layer (60) so it always covers exactly the surfaces the TSX makes inert;
+ * portalled menus (70 and up) and the modal layer (1000) stay above it, and
+ * shell.overlay content (20) stays below it.
+ */
+.drawerScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 65;
+  padding: 0;
+  border: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  -webkit-app-region: no-drag;
 }
