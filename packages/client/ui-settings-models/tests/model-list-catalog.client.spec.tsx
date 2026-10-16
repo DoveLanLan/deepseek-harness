@@ -12,7 +12,6 @@ function operations(discoverModels: ModelsOperations['discoverModels']): ModelsO
   return {
     discoverModels,
     testModel: vi.fn(),
-    describeCredential: vi.fn(),
     storeCredential: vi.fn(),
     removeCredential: vi.fn(),
     writeSettings: vi.fn(),
