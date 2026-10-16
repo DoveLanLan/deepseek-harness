@@ -940,7 +940,8 @@ class Hmr extends Service {
    * replacement plugin that fails to load or start, whose previous code no longer runs.
    */
   async reconcileProfile(requiredIds: readonly string[] = []): Promise<ProfileReconciliation> {
-    if (this.executing.getStore() !== true) throw new Error('HMR profile reconciliation must run inside runExclusive')
+    const caller = this.executing.getStore()
+    if (caller === undefined || caller !== this.active) throw new Error('HMR profile reconciliation must run inside runExclusive')
     const profile = this.ownerContext.get('profileContext')
     if (profile === undefined) throw new Error('HMR profile reconciliation requires profileContext')
     // Entries this recomposition stops start again, and fail it when they cannot.

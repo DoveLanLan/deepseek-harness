@@ -16,7 +16,6 @@ function operations(testModel: ModelsOperations['testModel']): ModelsOperations 
   return {
     testModel,
     discoverModels: vi.fn((): Promise<ModelDiscoveryOutcome> => Promise.resolve({ kind: 'found', models: [] })),
-    describeCredential: vi.fn(),
     storeCredential: vi.fn(),
     removeCredential: vi.fn(),
     writeSettings: vi.fn(),
