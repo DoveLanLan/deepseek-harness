@@ -630,8 +630,8 @@ function describeArkcliFailure(error, settings) {
   if (error !== null && typeof error === 'object' && error.killed === true) {
     return `${settings.command} did not finish within ${String(settings.timeoutMs)}ms`
   }
-  const detail = stderr?.trim() !== '' && stderr !== undefined ? stderr.trim().split('\n').at(-1) : undefined
-  return detail !== undefined && detail !== '' ? `${settings.command} failed: ${detail}` : describeError(error)
+  const detail = arkcliFailureDetail(stderr)
+  return detail !== undefined ? `${settings.command} failed: ${detail}` : describeError(error)
 }
 
 /**
@@ -657,6 +657,23 @@ function arkcliFailureCode(error) {
  */
 function missingCommandReported(stderr) {
   return /is not recognized as an internal or external command|不是内部或外部命令/i.test(stderr)
+}
+
+/**
+ * Read arkcli's own diagnosis out of a refused run.
+ *
+ * arkcli answers a refused command with a JSON envelope on standard error, so
+ * the report's last physical line is only the closing brace. The envelope's
+ * `error.message` names the remedy; anything else falls back to that last line.
+ * @param stderr - the captured standard error.
+ * @returns the diagnosis, or undefined when the report carries none.
+ */
+function arkcliFailureDetail(stderr) {
+  const text = typeof stderr === 'string' ? stderr.trim() : ''
+  if (text === '') return undefined
+  const parsed = parseJson(text)
+  const message = readString(parsed !== null && typeof parsed === 'object' ? parsed.error : undefined, 'message')
+  return message ?? text.split('\n').at(-1)
 }
 
 /**
