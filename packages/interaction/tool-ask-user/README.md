@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`ask_user_question` asks the user for confirmation, a choice, or missing information. It waits for an answer by default. With `mode: timed`, a deadline can release the model to continue independent work while the question stays answerable; `timeout: -1` waits indefinitely. A live child agent cannot call the tool. Callers provide the answer UI.
+`ask_user_question` asks the user for confirmation, a choice, or missing information. It waits for an answer by default. With `mode: timed`, a deadline can release the model to continue independent work while the question stays answerable; `timeout: -1` waits indefinitely. An opt-in `autoAnswerAfterTimeouts` policy answers with each question's recommended option once repeated questions expire unanswered. A live child agent cannot call the tool. Callers provide the answer UI.
 
 ## Table of Contents
 
@@ -35,9 +35,12 @@ Shipped presets use blocking mode. To enable timed mode, set `mode: timed` on th
   config:
     mode: timed
     timeout: 120
+    autoAnswerAfterTimeouts: 3
 ```
 
 This is a plugin row, not a top-level `--patch` entry. In the Web profile, change the `preset-standard` plugin list or use the Agent Preset editor. `mode: legacy` or omitted config keeps the blocking schema. The row's `timeout` applies to each timed call by default; `-1` waits indefinitely unless the model supplies a positive timeout. A model-supplied `-1` applies only to that call, including all its questions.
+
+`autoAnswerAfterTimeouts` replaces the pending result with an answer the user did not give. The first `N` questions of a Session may expire unanswered; from then on every expiry answers with each question's recommended option, and a batch with a question that offers no option keeps the pending result. The count ends only when the user answers a question, inside its window or later as a late reply. The option is the first label marked `(Recommended)` or `（推荐）`, otherwise the first option the schema asks the model to put the recommendation in. The policy requires `mode: timed` and a finite row `timeout`; a row that sets it without either fails at load. It applies to this tool's timed calls only: a caller that asks through the seam directly, such as the plan review, never reaches it.
 
 ### When to call the tool
 
@@ -68,6 +71,17 @@ For a finite timed call, `{ "pending": true, "callId": "…" }` means the foregr
 ```json
 { "answers": [{ "id": "cleanup", "selected": ["Yes, delete them (Recommended)"] }] }
 ```
+
+When the fallback policy answers for the user, the batch carries a marker the user's own answer never has:
+
+```json
+{
+  "answers": [{ "id": "cleanup", "selected": ["Yes, delete them (Recommended)"] }],
+  "autoAnswered": { "consecutiveTimeouts": 3, "timeoutSeconds": 120, "notice": "…" }
+}
+```
+
+The notice states that the user did not answer, that the recommended option was selected so work can continue, and that this is not the user's confirmation, approval, or permission.
 
 ### When the call fails
 
@@ -121,7 +135,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The shipped presets expose the original blocking [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). A custom Cordis row with `mode: timed` switches to the alternate schema, including question ids, prompts, headings, options, multi-select flags, `timeout`, and the pending result; the model sees only the selected definition.
+The shipped presets expose the original blocking [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user). A custom Cordis row with `mode: timed` switches to the alternate schema, including question ids, prompts, headings, options, multi-select flags, `timeout`, and the pending result; the model sees only the selected definition. A row that enables `autoAnswerAfterTimeouts` also declares the `autoAnswered` result field and tells the model that an unanswered question's recommended option can be selected automatically.
 
 #### Token effect
 
@@ -135,7 +149,7 @@ Prefix-stable while the definition and visibility are unchanged. Plugin lifecycl
 
 #### What the model sees
 
-The assistant tool call retains the questions. An answer during the wait appears in the next step as compact `{"answers":[{"id":"<id>","selected":["<label>"],"custom":"<text>"}]}` JSON; unused `custom` is omitted. A timed-out call returns `{"pending":true,"callId":"<pending-call-id>","message":"<instruction>"}`. A later answer arrives as a user message with `kind: "answer_to_pending_question"`, `tool: "ask_user_question"`, the call id, the original questions, and the answers. UI activity before submission is not model context.
+The assistant tool call retains the questions. An answer during the wait appears in the next step as compact `{"answers":[{"id":"<id>","selected":["<label>"],"custom":"<text>"}]}` JSON; unused `custom` is omitted. A timed-out call returns `{"pending":true,"callId":"<pending-call-id>","message":"<instruction>"}`. Under the fallback policy an expired call instead returns its answer batch with the `autoAnswered` marker described above. A later answer arrives as a user message with `kind: "answer_to_pending_question"`, `tool: "ask_user_question"`, the call id, the original questions, and the answers. UI activity before submission is not model context.
 
 #### Token effect
 
@@ -153,9 +167,12 @@ Append-only; newly visible content follows the reusable request prefix and does 
 These limits define when the tool is a poor fit. They are current package constraints, not a UI backlog.
 
 - **The legacy tool never reports pending** — it returns an answer or an error. Native legacy calls do not enter the `userQuestions` projection, and interrupted calls cannot take late answers.
+- **The recommended fallback ends with the Host process** — the unanswered count and its latch are Host memory, not Session state, so a restart returns the Session to the first `N` expiries before the policy answers again.
+- **Some questions never answer for the user** — a batch with a question that offers no option keeps the pending result, and a question carrying an intent never reaches a deadline policy at all, so an expired plan review stays pending.
 - **An interrupted PTC wait may lose its question** — if the `run_code` process ends before an `ask_user_question` sub-call records its `tool/ptc-dispatch` result, the projection cannot reconstruct that sub-call for a late answer.
 - **Runtime-owned subagents cannot ask the user** — `ask_user_question` rejects a live child owned by another agent with `DELEGATED_CALLER`; the child must include the unresolved question or decision in its final result. Durable lineage does not decide this boundary, so a lineage-bearing session resumed as a runtime root may ask normally.
 - **Native answers render as JSON text** — the canonical value remains structured, but the model-facing result uses compact JSON rather than a richer content-block vocabulary.
+- **The Web transcript does not mark an automatic answer** — the Client reads recorded answers from the projection, which keeps the batch but not the `autoAnswered` marker; only the model sees that the user did not answer.
 
 <a id="dev-note"></a>
 ### Dev Note

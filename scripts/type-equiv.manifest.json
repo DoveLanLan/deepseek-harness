@@ -1088,6 +1088,11 @@
     },
     {
       "doc": "docs/subsystems/user-questions.md",
+      "symbol": "TimedDeadlineAnswer",
+      "source": "packages/interaction/user-questions/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/user-questions.md",
       "symbol": "UserQuestionState",
       "source": "packages/interaction/user-questions/src/types.ts"
     },

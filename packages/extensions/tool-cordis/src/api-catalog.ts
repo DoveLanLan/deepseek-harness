@@ -3609,10 +3609,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'One Host-computed remaining duration, or no frames once the wait ended.',
       },
       {
-        signature: 'async askTimed( request: AskUserQuestionRequest & { agent: Agent }, callId: ToolCallId, timeoutMs: number, ): Promise<TimedUserQuestionResult>',
-        description: 'Foreground wait whose first settlement the Client decides: the Client rejects with `ASK_TIMED_OUT` when its countdown ends, and this method maps that code to the pending result.',
-        parameters: [{ name: 'request', description: 'Questions, live owner agent, and abort signal.' }, { name: 'callId', description: 'Tool call identity the Client card is keyed by.' }, { name: 'timeoutMs', description: 'Positive foreground wait in milliseconds.' }],
-        returns: 'The answer when it arrives inside the window, otherwise a pending result, also when no connected Client claimed the request by the deadline.',
+        signature: 'async askTimed( request: AskUserQuestionRequest & { agent: Agent }, callId: ToolCallId, timeoutMs: number, deadlineAnswer?: TimedDeadlineAnswer, ): Promise<TimedUserQuestionResult>',
+        description: 'Foreground wait whose first settlement the Client decides: the Client rejects with `ASK_TIMED_OUT` when its countdown ends, and this method maps that code to the pending result, or to the answer `deadlineAnswer` returns.',
+        parameters: [{ name: 'request', description: 'Questions, live owner agent, and abort signal.' }, { name: 'callId', description: 'Tool call identity the Client card is keyed by.' }, { name: 'timeoutMs', description: 'Positive foreground wait in milliseconds.' }, { name: 'deadlineAnswer', description: 'Optional policy consulted once at expiry; an answer settles the call with it, `undefined` keeps the pending result. It is not consulted at all when any question declares an intent, and it must not throw.' }],
+        returns: 'The answer when it arrives inside the window, otherwise the deadline answer, otherwise a pending result, also when no connected Client claimed the request by the deadline.',
         throws: ['{UserQuestionError} `BAD_TIMEOUT` for a non-integer, non-positive, or oversized wait.'],
       },
       {
@@ -8176,6 +8176,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TextProps',
     declaration: 'export interface TextProps {\n    readonly color?: string | undefined;\n    readonly bold?: boolean | undefined;\n    readonly dimColor?: boolean | undefined;\n    readonly italic?: boolean | undefined;\n    readonly underline?: boolean | undefined;\n    readonly children?: UiNode | undefined;\n}',
+  },
+  {
+    name: 'TimedDeadlineAnswer',
+    declaration: 'export type TimedDeadlineAnswer = () => AskUserQuestionAnswer | undefined;',
   },
   {
     name: 'TimedUserQuestionResult',

@@ -12,7 +12,7 @@ The foreground tool result and the eventual answer have different lifetimes. A `
 
 ## Decision
 
-Foreground answers use the existing Remote Event waterfall. A timeout ends that request and returns pending; a later answer uses a business RPC that steers a durable user message. The claim stream controls the foreground wait only. It neither transports answers nor replaces the Remote Event.
+Foreground answers use the existing Remote Event waterfall. A timeout ends that request and returns pending, unless the caller supplied a deadline answer; a later answer uses a business RPC that steers a durable user message. The claim stream controls the foreground wait only. It neither transports answers nor replaces the Remote Event.
 
 ### Modes and scope
 
@@ -42,7 +42,7 @@ A timed request carries `wait: { callId, timed: true }`. Before attaching its an
 
 The Client retains its claim through delivery of the waterfall outcome to the Host. Returning an answer locally is not delivery: releasing the claim then could let an overdue Host timer beat that answer. The Host closes the claim when the foreground request settles. Explicit delegation releases the claim before `next()`; plugin teardown delegates and cancels its stream.
 
-Client countdown expiry rejects the waterfall with `ASK_TIMED_OUT`. Unattended Host expiry aborts only the private wait signal with the same business error. `askTimed()` maps only that error to pending, maps parent cancellation to `ASK_ABORTED`, and propagates other failures. `NO_PROVIDER` waits on the same bounded wait lifetime, not a permanently unresolved promise. Foreground completion releases timers, claims, and the wait registry entry.
+Client countdown expiry rejects the waterfall with `ASK_TIMED_OUT`. Unattended Host expiry aborts only the private wait signal with the same business error. `askTimed()` maps that error to pending, or to the answer its optional deadline-answer policy returns for a question that declares no intent, maps parent cancellation to `ASK_ABORTED`, and propagates other failures. `NO_PROVIDER` waits on the same bounded wait lifetime, not a permanently unresolved promise. Foreground completion releases timers, claims, and the wait registry entry.
 
 ### Durable state and late answers
 
@@ -98,7 +98,7 @@ This decision adds no independent-layout flag or user-message structure change. 
 
 ## Verification
 
-- [Service tests](../../../../packages/interaction/user-questions/tests/user-questions.spec.ts) and [wait tests](../../../../packages/interaction/user-questions/tests/timed-wait.spec.ts) cover claimed and unclaimed waits, last-claim disconnect, cancellation, timeout error mapping, continued-only answers, and exact answer-id validation.
+- [Service tests](../../../../packages/interaction/user-questions/tests/user-questions.spec.ts) and [wait tests](../../../../packages/interaction/user-questions/tests/timed-wait.spec.ts) cover claimed and unclaimed waits, last-claim disconnect, cancellation, timeout error mapping, deadline-answer settlement, continued-only answers, and exact answer-id validation.
 - [Projection tests](../../../../packages/interaction/user-questions/tests/projection.spec.ts) distinguish legacy and timed schemas and cover native and PTC pending calls, other failures, resume repair, queued reply cancellation, and admitted settlement.
 - [Client listener tests](../../../../packages/client/ui-user-questions/tests/browser-plugin.client.spec.ts) and [composer tests](../../../../packages/client/ui-user-questions/tests/user-questions-composer.client.spec.tsx) cover claim retention through Host acceptance, focus before handshake, indefinite waits, draft retention, RPC resubmission, and panel actions.
 - [Grouping tests](../../../../packages/client/ui-chat/tests/process-groups.client.spec.ts) and [browser replay](../../../../apps/web/tests/question-composer.e2e.ts) cover ordinary collapsed placement, disclosure ordering, and the original tool row's read-only late-answer panel.

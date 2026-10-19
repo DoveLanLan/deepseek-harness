@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-当工具或权限流程需要用户提供结构化答案时，使用 `ctx.userQuestions`。`ask()` 会等待回答；`askTimed()` 可以放行 agent 继续独立工作，而问题仍留在会话中供用户回答。
+当工具或权限流程需要用户提供结构化答案时，使用 `ctx.userQuestions`。`ask()` 会等待回答；`askTimed()` 可以放行 agent 继续独立工作，而问题仍留在会话中供用户回答，且调用方可以决定到期等待的结算方式。
 
 ## 目录
 
@@ -25,6 +25,8 @@ kind: "package-reference"
 ## 提出问题
 
 当工作无法在没有答案的情况下继续时调用 `ask()`。当 agent 可以在一段前台等待后继续独立工作时调用 `askTimed()`。回答 UI 通过 `attachWait` 接手等待，取得 Host 计算的剩余时长，并用本地时钟倒计时。没有接手方时，包括最后一个 Client 断开之后，服务在原 deadline 放行模型。`userQuestions` projection 从工具调用、其结果和最终回复派生持久问题；Client 接手状态不落盘。
+
+调用方给 `askTimed()` 传入 deadline answer 时，由它决定到期等待的结果。服务只在到期时询问一次：返回答案即用它结算调用，与窗口内回答完全一致；返回 `undefined` 则保留 pending 结果。声明了 intent 的问题永远不经过该策略，因此到期等待无法结算 UI 以审批形式呈现的决定。
 
 对于单选题，`custom` 会覆盖选中的选项，且 `selected` 为空。对于多选题，`custom` 可以补充 `selected` 中的标签。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
 

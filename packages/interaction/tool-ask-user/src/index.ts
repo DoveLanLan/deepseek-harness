@@ -18,11 +18,19 @@ export interface Config {
   mode?: 'legacy' | 'timed'
   /** Foreground wait before automatic continuation. Defaults to 120 seconds. */
   timeout?: number
+  /**
+   * Answer with each question's recommended option once this many questions
+   * have expired unanswered in a row, and keep doing so until the user answers
+   * one. Requires `mode: timed` and a finite row `timeout`; absent keeps every
+   * expiry pending and answerable.
+   */
+  autoAnswerAfterTimeouts?: number
 }
 
 export const Config: z<Config> = z.object({
   mode: z.union(['legacy', 'timed']).default('legacy'),
   timeout: z.union([-1, z.number().step(1).min(1).max(2_147_483)]).default(120),
+  autoAnswerAfterTimeouts: z.number().step(1).min(1),
 })
 
 export const name = 'tool-ask-user'
@@ -32,8 +40,18 @@ const description = 'Ask the user a concise question when you need confirmation,
 
 export function apply(ctx: Context, config: Config = {}): void {
   if (config.mode === 'timed') {
-    registerTimedAskUser(ctx, config.timeout)
+    registerTimedAskUser(
+      ctx,
+      config.timeout,
+      config.autoAnswerAfterTimeouts === undefined ? undefined : { afterTimeouts: config.autoAnswerAfterTimeouts },
+    )
     return
+  }
+  if (config.autoAnswerAfterTimeouts !== undefined) {
+    throw new Error(
+      'autoAnswerAfterTimeouts requires mode: timed on the tool-ask-user row; '
+      + 'the legacy tool waits for an answer without a deadline to answer at',
+    )
   }
   ctx.tools.register(defineTool({
     name: 'ask_user_question',

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `ctx.userQuestions` when a tool or permission flow needs a structured answer from the user. `ask()` waits for that answer; `askTimed()` may release the agent to continue independent work while the question remains answerable in the Session.
+Use `ctx.userQuestions` when a tool or permission flow needs a structured answer from the user. `ask()` waits for that answer; `askTimed()` may release the agent to continue independent work while the question remains answerable in the Session, and its caller may decide what an expired wait settles with.
 
 ## Table of Contents
 
@@ -25,6 +25,8 @@ Use `ctx.userQuestions` when a tool or permission flow needs a structured answer
 ## Ask a question
 
 Call `ask()` when work cannot continue without the answer. Call `askTimed()` when the agent may continue independent work after a foreground wait. An answer UI claims that wait through `attachWait`, receives the Host-computed remaining duration, and counts down on its own clock. Without a claim, including after the last Client disconnects, the service releases the model at the original deadline. The `userQuestions` projection derives durable questions from the tool call, its result, and the eventual reply; Client claims are not persisted.
+
+A caller that passes a deadline answer to `askTimed()` decides the outcome of an expired wait. The service consults it once at expiry: an answer it returns settles the call exactly as an in-time answer would, and `undefined` keeps the pending result. A question that declares an intent never reaches that policy, so an expired wait cannot settle a decision a UI presents as an approval.
 
 For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
 

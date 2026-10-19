@@ -774,6 +774,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AskUserQuestionAnswer: 'user-questions.md',
   AskUserQuestionRequest: 'user-questions.md',
   TimedUserQuestionResult: 'user-questions.md',
+  TimedDeadlineAnswer: 'user-questions.md',
   UserQuestionProvider: 'user-questions.md',
   WebFetchProvider: 'web.md',
   WebFetchRequest: 'web.md',

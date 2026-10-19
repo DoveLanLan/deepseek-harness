@@ -136,6 +136,24 @@ A timed question waits for a bounded foreground window and then lets the agent c
 type TimedUserQuestionResult = AskUserQuestionAnswer | { pending: true; callId: ToolCallId }
 ```
 
+A caller may pass a deadline answer to `askTimed`. It is consulted once when the wait expires: an answer it returns settles the call exactly as an in-time answer would, and `undefined` keeps the pending result. A question that declares an intent never reaches that policy, so an expired wait cannot settle a decision a UI presents as an approval.
+
+```ts type-equiv
+/**
+ * Caller policy for the moment a timed foreground wait expires without an
+ * answer. Returning an answer settles the call with it, exactly as an answer
+ * that arrived inside the window would; returning `undefined` keeps the
+ * documented pending result.
+ *
+ * A question that declares an intent never reaches this policy: an intent marks
+ * a decision a UI presents as such, and an expired wait is not one of its
+ * choices.
+ */
+type TimedDeadlineAnswer = () => AskUserQuestionAnswer | undefined
+```
+
+The opt-in `autoAnswerAfterTimeouts` row config on `@deepseek-ai/dsh-tool-ask-user` uses that policy to answer with each question's recommended option once repeated questions expire unanswered; the [tool package](../../packages/interaction/tool-ask-user/README.md) owns the policy, its reset rule, and its model-facing result.
+
 A Client claim is a business Remote stream, not a Gateway delivery. `TimedQuestionWait` holds the original Host deadline and runs its timer only while no claim exists. Its `attachWait` stream yields the current remaining duration, and the Client counts down with its own clock. Focus, editing, and Take time stay local. Stream cancellation releases that claim; after the last claim leaves, the Host resumes the original deadline. An unattended timeout aborts the foreground waterfall's private signal and returns pending without cancelling the Turn. Gateway and `api-remotes` contain no question-specific timing policy.
 
 The `userQuestions` Session projection folds existing events into the answerable question set and the settled one; no wait state, focus state, or deadline is logged. Each `request/header` records the exact tool schemas the model saw. Native calls are tracked only when that header declares the timed `ask_user_question` schema with a `timeout` parameter; the blocking legacy tool never declares it. A native `tool/call` opens a question. A `tool/result` marks it `continued` only when it carries the pending payload or is the synthetic `TOOL_OUTCOME_UNKNOWN` result Session resume repair appends; an answer batch moves it into `settled` with that batch, and any failure drops it. A `run_code` PTC sub-call enters the projection when its `tool/ptc-dispatch` result is pending, even though the request header exposes only `run_code`. A late reply moves a continued question into `settled` when its message is admitted as `user/message`, together with the answer batch read out of that message: the timed call's own result recorded the timeout, so a transcript row has nowhere else to read what the user finally chose. A queued reply can be canceled before admission and leaves the question answerable. A reply whose text carries no readable batch settles the call with no answers; one naming a call that is not active changes nothing.
@@ -246,16 +264,21 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 /**
  * Foreground wait whose first settlement the Client decides: the Client
  * rejects with `ASK_TIMED_OUT` when its countdown ends, and this method maps
- * that code to the pending result.
+ * that code to the pending result, or to the answer `deadlineAnswer` returns.
  * @param request - Questions, live owner agent, and abort signal.
  * @param callId - Tool call identity the Client card is keyed by.
  * @param timeoutMs - Positive foreground wait in milliseconds.
- * @returns The answer when it arrives inside the window, otherwise a pending
- *   result, also when no connected Client claimed the request by the deadline.
+ * @param deadlineAnswer - Optional policy consulted once at expiry; an answer
+ *   settles the call with it, `undefined` keeps the pending result. It is not
+ *   consulted at all when any question declares an intent, and it must not
+ *   throw.
+ * @returns The answer when it arrives inside the window, otherwise the
+ *   deadline answer, otherwise a pending result, also when no connected Client
+ *   claimed the request by the deadline.
  * @throws {UserQuestionError} `BAD_TIMEOUT` for a non-integer, non-positive,
  *   or oversized wait.
  */
-async askTimed( request: AskUserQuestionRequest & { agent: Agent }, callId: ToolCallId, timeoutMs: number, ): Promise<TimedUserQuestionResult>
+async askTimed( request: AskUserQuestionRequest & { agent: Agent }, callId: ToolCallId, timeoutMs: number, deadlineAnswer?: TimedDeadlineAnswer, ): Promise<TimedUserQuestionResult>
 
 /**
  * Ask the scoped answerer waterfall and wait for the user's answer.

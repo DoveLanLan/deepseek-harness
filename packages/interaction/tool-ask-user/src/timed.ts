@@ -3,17 +3,56 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
-import { TIMED_WAIT_PARAMETER } from '@deepseek-ai/dsh-user-questions'
+import { TIMED_WAIT_PARAMETER, type TimedDeadlineAnswer } from '@deepseek-ai/dsh-user-questions'
 import type {
-  AskUserQuestionAnswer, AskUserQuestionRequestEvent,
+  AskUserQuestionAnswer, AskUserQuestionAnswerItem, AskUserQuestionRequestEvent,
 } from '@deepseek-ai/dsh-user-questions/types'
+
+/**
+ * Deadline policy that answers in the user's place with each question's
+ * recommended option. The first `afterTimeouts` questions of a Session may
+ * expire unanswered; from then on every expiry is answered this way until the
+ * user answers a question, which ends both the count and the policy.
+ */
+export interface RecommendedFallback {
+  /** Questions whose foreground wait may expire unanswered before the policy answers. */
+  afterTimeouts: number
+}
+
+/** One Session's record of consecutive expired waits, owned by the plugin fiber. */
+interface UnansweredStreak {
+  /** Questions in a row whose foreground wait expired without a user answer. */
+  expired: number
+  /** Whether `expired` reached the threshold, so later expiries keep answering. */
+  latched: boolean
+}
+
+/**
+ * The conventional recommendation suffix the model appends to the option it
+ * recommends. It mirrors the Client's display split, which accepts the English
+ * and Chinese forms; a browser half cannot share this Host module.
+ */
+const RECOMMENDED_SUFFIX = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/i
 
 function validateTimeout(timeout: number): number {
   if (timeout !== -1 && (!Number.isInteger(timeout) || timeout < 1 || timeout > 2_147_483)) {
     throw new Error('timeout must be -1 or a positive integer up to 2147483 seconds')
   }
   return timeout
+}
+
+function validateRecommendedFallback(recommended: RecommendedFallback, defaultTimeout: number): void {
+  if (!Number.isInteger(recommended.afterTimeouts) || recommended.afterTimeouts < 1) {
+    throw new Error('autoAnswerAfterTimeouts must be a positive integer count of questions')
+  }
+  if (defaultTimeout === -1) {
+    throw new Error(
+      'autoAnswerAfterTimeouts requires a finite timeout on the tool-ask-user row; '
+      + 'set a positive number of seconds instead of -1',
+    )
+  }
 }
 
 function validateQuestionIds(questions: readonly { readonly id: string }[]): void {
@@ -29,6 +68,8 @@ const description = 'Ask brief, direct, self-contained questions about missing i
   + 'Use distinct stable question IDs. A submitted skipped question is an answer item with empty selected and no custom; '
   + 'pending instead means no answer batch arrived before the timeout and the user can still answer.'
 
+const optionsDescription = 'Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.'
+
 /**
  * Instruction the pending result carries in its `message` field. It is a field
  * of the result value rather than prose beside it because the recorded result
@@ -40,6 +81,15 @@ const pendingNotice = 'No answer batch arrived before the timeout. This is pendi
   + 'Continue useful independent work. The user can still answer; their reply will be a user message '
   + 'identified as answer_to_pending_question with this callId and the original questions. '
   + 'Do not treat this as permission.'
+
+/**
+ * Instruction the automatically answered result carries in its `notice` field,
+ * for the same reason the pending result carries its own text there.
+ */
+const autoAnsweredNotice = 'No user answer arrived before this timeout, and the user had already left the '
+  + 'previous questions unanswered. Each question was answered with its recommended option so work can continue. '
+  + 'This is not the user\'s confirmation, approval, or permission: treat it as a default the user can correct, '
+  + 'and revisit the decision if they later object.'
 
 interface ToolQuestion {
   readonly id: string
@@ -55,6 +105,12 @@ interface ToolAnswerResult {
     readonly selected: string[]
     readonly custom?: string
   }[]
+  /** Present only when no user answer arrived and the recommended options answered instead. */
+  readonly autoAnswered?: {
+    readonly consecutiveTimeouts: number
+    readonly timeoutSeconds: number
+    readonly notice: string
+  }
 }
 
 /**
@@ -96,12 +152,48 @@ function answerResult(result: AskUserQuestionAnswer): ToolAnswerResult {
 }
 
 /**
+ * Answer every question with its recommended option, and with the first option
+ * when none is marked, which the tool schema asks the model to make the
+ * recommended one. A multi-select question takes that single option.
+ * @param questions - Questions of the call whose wait expired.
+ * @returns One answer item per question in ask order, or undefined when a
+ *   question offers no option to select.
+ */
+function recommendedAnswers(questions: readonly ToolQuestion[]): AskUserQuestionAnswer | undefined {
+  const answers: AskUserQuestionAnswerItem[] = []
+  for (const question of questions) {
+    const options = question.options ?? []
+    const chosen = options.find(option => RECOMMENDED_SUFFIX.test(option.label)) ?? options[0]
+    if (chosen === undefined) return undefined
+    answers.push({ id: question.id, selected: [chosen.label] })
+  }
+  return { answers }
+}
+
+/**
  * Register the opt-in timed tool definition.
  * @param ctx - Agent-scoped context receiving the tool.
  * @param timeout - Default foreground wait in seconds.
+ * @param recommended - Deadline policy that answers with the recommended option
+ *   after repeated unanswered questions; absent keeps every expiry pending.
+ * @throws {Error} When `recommended` is malformed or names a threshold that an
+ *   indefinite wait can never reach.
  */
-export function registerTimedAskUser(ctx: Context, timeout = 120): void {
+export function registerTimedAskUser(ctx: Context, timeout = 120, recommended?: RecommendedFallback): void {
   const defaultTimeout = validateTimeout(timeout)
+  if (recommended !== undefined) validateRecommendedFallback(recommended, defaultTimeout)
+  const streaks = new WeakMap<Agent['session'], UnansweredStreak>()
+  if (recommended !== undefined) {
+    // A late answer admits a user message naming the question it replies to;
+    // that is the user answering after the deadline, so the policy stands down.
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'user/message' || event.data.source.kind !== 'user-question-reply') return
+      const streak = streaks.get(session)
+      if (streak === undefined) return
+      streak.expired = 0
+      streak.latched = false
+    }, { global: true })
+  }
   /* jscpd:ignore-start -- The timed schema intentionally shares question fields with the legacy tool. */
   ctx.tools.register(defineTool({
     name: 'ask_user_question',
@@ -123,7 +215,9 @@ export function registerTimedAskUser(ctx: Context, timeout = 120): void {
             },
             options: {
               type: 'array',
-              description: 'Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label.',
+              description: recommended === undefined
+                ? optionsDescription
+                : `${optionsDescription} When the user leaves questions unanswered, a recommended option can be selected automatically.`,
               items: {
                 type: 'object',
                 additionalProperties: true,
@@ -182,6 +276,28 @@ export function registerTimedAskUser(ctx: Context, timeout = 120): void {
                   },
                 },
               },
+              // Declared only under the policy that can produce it, so the
+              // schema never advertises an answer the user did not give.
+              ...recommended === undefined ? {} : {
+                autoAnswered: {
+                  type: 'object', additionalProperties: false,
+                  description: 'Present only when no user answer arrived and each question was answered with its recommended option instead; absent when the user submitted the batch.',
+                  properties: {
+                    consecutiveTimeouts: {
+                      type: 'integer', required: true,
+                      description: 'Questions whose foreground wait expired unanswered in a row, including this call.',
+                    },
+                    timeoutSeconds: {
+                      type: 'integer', required: true,
+                      description: 'Foreground wait this call allowed, in seconds.',
+                    },
+                    notice: {
+                      type: 'string', required: true,
+                      description: 'How to treat answers the user did not give.',
+                    },
+                  },
+                },
+              },
             },
           },
         ],
@@ -194,8 +310,43 @@ export function registerTimedAskUser(ctx: Context, timeout = 120): void {
       const request = questionRequest(args.questions, exec)
       if (timeout !== -1) {
         if (exec.agent === undefined) throw new Error('timed questions require a live agent')
-        const result = await ctx.userQuestions.askTimed({ ...request, agent: exec.agent }, exec.callId, timeout * 1000)
-        return 'pending' in result ? { ...result, message: pendingNotice } : answerResult(result)
+        const agent = exec.agent
+        const streak = recommended === undefined
+          ? undefined
+          : streaks.get(agent.session) ?? { expired: 0, latched: false }
+        if (streak !== undefined) streaks.set(agent.session, streak)
+        let autoResult: ToolAnswerResult | undefined
+        let deadlineAnswer: TimedDeadlineAnswer | undefined
+        if (streak !== undefined && recommended !== undefined) {
+          const expired = streak
+          const threshold = recommended.afterTimeouts
+          deadlineAnswer = () => {
+            expired.expired += 1
+            const answers = recommendedAnswers(args.questions)
+            if (answers === undefined) return undefined
+            if (!expired.latched && expired.expired < threshold) return undefined
+            expired.latched = true
+            autoResult = {
+              ...answerResult(answers),
+              autoAnswered: {
+                consecutiveTimeouts: expired.expired,
+                timeoutSeconds: timeout,
+                notice: autoAnsweredNotice,
+              },
+            }
+            return answers
+          }
+        }
+        const result = await ctx.userQuestions.askTimed({ ...request, agent }, exec.callId, timeout * 1000, deadlineAnswer)
+        if ('pending' in result) return { ...result, message: pendingNotice }
+        if (autoResult !== undefined) return autoResult
+        // The user answered inside the window, so the run of unanswered
+        // questions they were accumulating ends here.
+        if (streak !== undefined) {
+          streak.expired = 0
+          streak.latched = false
+        }
+        return answerResult(result)
       }
       // `wait` without `timed`: this tool's indefinite form still keys the
       // Client card by call id, so the UI can reopen a closed panel from the

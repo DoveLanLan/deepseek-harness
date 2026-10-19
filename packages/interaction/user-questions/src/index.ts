@@ -42,6 +42,18 @@ export interface AskUserQuestionRequest extends AskUserQuestionRequestEvent {}
 /** Timed ask result returned when the foreground answer window closes. */
 export type TimedUserQuestionResult = AskUserQuestionAnswer | { pending: true; callId: ToolCallId }
 
+/**
+ * Caller policy for the moment a timed foreground wait expires without an
+ * answer. Returning an answer settles the call with it, exactly as an answer
+ * that arrived inside the window would; returning `undefined` keeps the
+ * documented pending result.
+ *
+ * A question that declares an intent never reaches this policy: an intent marks
+ * a decision a UI presents as such, and an expired wait is not one of its
+ * choices.
+ */
+export type TimedDeadlineAnswer = () => AskUserQuestionAnswer | undefined
+
 /** Stable error taxonomy for user-questions failures. */
 export class UserQuestionError extends HarnessError {
   constructor(message: string, code: string, options?: ErrorOptions) {
@@ -222,12 +234,17 @@ export class UserQuestionService extends TypertRemoteService {
   /**
    * Foreground wait whose first settlement the Client decides: the Client
    * rejects with `ASK_TIMED_OUT` when its countdown ends, and this method maps
-   * that code to the pending result.
+   * that code to the pending result, or to the answer `deadlineAnswer` returns.
    * @param request - Questions, live owner agent, and abort signal.
    * @param callId - Tool call identity the Client card is keyed by.
    * @param timeoutMs - Positive foreground wait in milliseconds.
-   * @returns The answer when it arrives inside the window, otherwise a pending
-   *   result, also when no connected Client claimed the request by the deadline.
+   * @param deadlineAnswer - Optional policy consulted once at expiry; an answer
+   *   settles the call with it, `undefined` keeps the pending result. It is not
+   *   consulted at all when any question declares an intent, and it must not
+   *   throw.
+   * @returns The answer when it arrives inside the window, otherwise the
+   *   deadline answer, otherwise a pending result, also when no connected Client
+   *   claimed the request by the deadline.
    * @throws {UserQuestionError} `BAD_TIMEOUT` for a non-integer, non-positive,
    *   or oversized wait.
    */
@@ -235,6 +252,7 @@ export class UserQuestionService extends TypertRemoteService {
     request: AskUserQuestionRequest & { agent: Agent },
     callId: ToolCallId,
     timeoutMs: number,
+    deadlineAnswer?: TimedDeadlineAnswer,
   ): Promise<TimedUserQuestionResult> {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
       throw new UserQuestionError('timeout must fit a positive platform timer', 'BAD_TIMEOUT')
@@ -258,7 +276,14 @@ export class UserQuestionService extends TypertRemoteService {
         throw error
       }
     } catch (error) {
-      if (error instanceof UserQuestionError && error.code === 'ASK_TIMED_OUT') return { pending: true, callId }
+      if (error instanceof UserQuestionError && error.code === 'ASK_TIMED_OUT') {
+        // An intent-marked decision is never settled by an expiry: the answer
+        // vocabulary for it belongs to the UI that presents it.
+        if (deadlineAnswer === undefined || request.questions.some(question => question.intent !== undefined)) {
+          return { pending: true, callId }
+        }
+        return deadlineAnswer() ?? { pending: true, callId }
+      }
       if (wait.signal.aborted) throw abortedQuestion(error)
       throw error
     } finally {

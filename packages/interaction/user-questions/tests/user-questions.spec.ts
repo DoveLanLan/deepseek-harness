@@ -603,6 +603,104 @@ describe('askTimed', () => {
   })
 })
 
+describe('askTimed deadline answer', () => {
+  const policyAnswer: AskUserQuestionAnswer = { answers: [{ id: 'scope', selected: ['Tool only'] }] }
+
+  it('settles an expired wait with the answer the caller policy returns, and releases the wait', async () => {
+    const ctx = await timedContext()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const agent = liveAgent('timed-deadline-answer')
+    ctx.agents.enter(agent, undefined)
+    registerAnswerer(ctx, { ask: () => Promise.reject(wireRejection('ASK_TIMED_OUT')) })
+    const policy = vi.fn(() => policyAnswer)
+
+    await expect(ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 120_000, policy))
+      .resolves.toEqual(policyAnswer)
+    expect(policy).toHaveBeenCalledTimes(1)
+    // The wait was released, so the same call id can be asked again.
+    await expect(ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 120_000, policy))
+      .resolves.toEqual(policyAnswer)
+  })
+
+  it('keeps the pending result when the caller policy declines and when none is supplied', async () => {
+    const ctx = await timedContext()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const agent = liveAgent('timed-deadline-declined')
+    ctx.agents.enter(agent, undefined)
+    registerAnswerer(ctx, { ask: () => Promise.reject(wireRejection('ASK_TIMED_OUT')) })
+    const policy = vi.fn(() => undefined)
+
+    await expect(ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 120_000, policy))
+      .resolves.toEqual({ pending: true, callId: timedCallId })
+    expect(policy).toHaveBeenCalledTimes(1)
+    await expect(ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 120_000))
+      .resolves.toEqual({ pending: true, callId: timedCallId })
+  })
+
+  it('consults the caller policy at the host deadline when no answerer accepted the request', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = await timedContext()
+      const agent = liveAgent('timed-deadline-unclaimed')
+      ctx.agents.enter(agent, undefined)
+      const policy = vi.fn(() => policyAnswer)
+
+      const result = ctx.userQuestions.askTimed({ agent, questions: timedQuestions }, timedCallId, 5_000, policy)
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      await expect(result).resolves.toEqual(policyAnswer)
+      expect(policy).toHaveBeenCalledTimes(1)
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never consults the caller policy for a question that declares an intent', async () => {
+    const ctx = await timedContext()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const agent = liveAgent('timed-deadline-intent')
+    ctx.agents.enter(agent, undefined)
+    registerAnswerer(ctx, { ask: () => Promise.reject(wireRejection('ASK_TIMED_OUT')) })
+    const policy = vi.fn(() => policyAnswer)
+    const intentQuestions = [{
+      id: 'plan',
+      question: 'Approve the plan?',
+      detail: '# The plan',
+      options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+      intent: { kind: 'plan-review' as const, approve: 'Approve' },
+    }]
+
+    await expect(ctx.userQuestions.askTimed({ agent, questions: intentQuestions }, timedCallId, 120_000, policy))
+      .resolves.toEqual({ pending: true, callId: timedCallId })
+    expect(policy).not.toHaveBeenCalled()
+  })
+
+  it('aborts rather than consulting the caller policy when the turn is cancelled', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = await timedContext()
+      const agent = liveAgent('timed-deadline-aborted')
+      ctx.agents.enter(agent, undefined)
+      const controller = new AbortController()
+      const policy = vi.fn(() => policyAnswer)
+
+      const result = ctx.userQuestions.askTimed(
+        { agent, questions: timedQuestions, signal: controller.signal }, timedCallId, 5_000, policy,
+      )
+      const rejection = expect(result).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+      await vi.advanceTimersByTimeAsync(1_000)
+      controller.abort()
+
+      await rejection
+      expect(policy).not.toHaveBeenCalled()
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('late replies', () => {
   /** The timed tool's schema as the request header records it: the wait parameter is what marks the calls that follow as timed. */
   const timedToolSchema: ToolSchema = {

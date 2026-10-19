@@ -3699,6 +3699,13 @@ export interface Config {
   mode?: 'legacy' | 'timed'
   /** Foreground wait before automatic continuation. Defaults to 120 seconds. */
   timeout?: number
+  /**
+   * Answer with each question's recommended option once this many questions
+   * have expired unanswered in a row, and keep doing so until the user answers
+   * one. Requires `mode: timed` and a finite row `timeout`; absent keeps every
+   * expiry pending and answerable.
+   */
+  autoAnswerAfterTimeouts?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-ask-user -->

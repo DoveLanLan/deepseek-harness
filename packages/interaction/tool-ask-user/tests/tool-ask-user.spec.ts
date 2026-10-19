@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createToolResultMessage, ToolCallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
+import { createToolResultMessage, createUserMessage, ToolCallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, SessionSeq, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -677,5 +677,242 @@ describe('ask_user_question tool', () => {
     await fiber.dispose()
 
     expect(ctx.tools.get('ask_user_question')).toBeUndefined()
+  })
+})
+
+describe('ask_user_question recommended fallback', () => {
+  type ExecutedQuestion = Awaited<ReturnType<Context['tools']['execute']>>
+
+  /** The one JSON object the tool renders into its model-facing text block. */
+  function renderedPayload(result: ExecutedQuestion): unknown {
+    const content = result.content[0]
+    if (content === undefined || content.type !== 'text') throw new Error('expected a text tool result')
+    return JSON.parse(content.text)
+  }
+
+  /** Run one timed call no answerer can take, and let its host deadline expire. */
+  async function expireUnanswered(
+    ctx: Context,
+    agent: Agent,
+    callId: string,
+    questions: readonly Record<string, unknown>[],
+  ): Promise<ExecutedQuestion> {
+    const execution = ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId(callId),
+      name: 'ask_user_question',
+      arguments: { questions },
+      agent,
+    })
+    await vi.advanceTimersByTimeAsync(1_000)
+    return execution
+  }
+
+  const scopeQuestion = [{
+    id: 'scope',
+    question: 'Which scope?',
+    options: [{ label: 'Whole workspace (Recommended)' }, { label: 'This package' }],
+  }]
+
+  async function fallbackContext(sessionId: string, afterTimeouts: number) {
+    const ctx = await setup({ mode: 'timed', timeout: 1, autoAnswerAfterTimeouts: afterTimeouts })
+    const agent = { ...stubAgent(sessionId), steer: vi.fn() } as Agent
+    ctx.agents.enter(agent, undefined)
+    return { ctx, agent }
+  }
+
+  it('answers with the recommended option once consecutive unanswered questions reach the threshold', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-threshold', 3)
+
+      const first = await expireUnanswered(ctx, agent, 'ask-1', scopeQuestion)
+      const second = await expireUnanswered(ctx, agent, 'ask-2', scopeQuestion)
+      const third = await expireUnanswered(ctx, agent, 'ask-3', scopeQuestion)
+      const fourth = await expireUnanswered(ctx, agent, 'ask-4', scopeQuestion)
+
+      expect(renderedPayload(first)).toMatchObject({ pending: true, callId: 'ask-1' })
+      expect(renderedPayload(second)).toMatchObject({ pending: true, callId: 'ask-2' })
+      expect(renderedPayload(third)).toEqual({
+        answers: [{ id: 'scope', selected: ['Whole workspace (Recommended)'] }],
+        autoAnswered: {
+          consecutiveTimeouts: 3,
+          timeoutSeconds: 1,
+          notice: expect.stringContaining('not the user\'s confirmation, approval, or permission') as string,
+        },
+      })
+      // Once latched, the policy answers every later expiry until the user
+      // answers one question, so this fourth call answers too.
+      expect(renderedPayload(fourth)).toMatchObject({
+        answers: [{ id: 'scope', selected: ['Whole workspace (Recommended)'] }],
+        autoAnswered: { consecutiveTimeouts: 4, timeoutSeconds: 1 },
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('takes the marked option, the first option when none is marked, and one option for a multi-select question', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-options', 1)
+
+      const result = await expireUnanswered(ctx, agent, 'ask-options', [
+        { id: 'marked', question: 'Marked?', options: [{ label: 'Second' }, { label: 'Marked（推荐）' }] },
+        { id: 'unmarked', question: 'Unmarked?', multi_select: true, options: [{ label: 'Only' }] },
+        { id: 'spaced', question: 'Spaced?', options: [{ label: 'Plain (RECOMMENDED) ' }] },
+      ])
+
+      expect(renderedPayload(result)).toMatchObject({
+        answers: [
+          { id: 'marked', selected: ['Marked（推荐）'] },
+          { id: 'unmarked', selected: ['Only'] },
+          { id: 'spaced', selected: ['Plain (RECOMMENDED) '] },
+        ],
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a question without options pending instead of inventing an answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-no-options', 1)
+
+      const result = await expireUnanswered(ctx, agent, 'ask-free-form', [
+        { id: 'free', question: 'What should I name it?' },
+      ])
+
+      expect(renderedPayload(result)).toMatchObject({ pending: true, callId: 'ask-free-form' })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends the run when the user answers inside the window', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-in-time', 2)
+
+      const expired = await expireUnanswered(ctx, agent, 'ask-expired', scopeQuestion)
+      const disposeAnswerer = registerQuestionAnswerer(ctx, {
+        ask: async () => ({ answers: [{ id: 'scope', selected: ['This package'] }] }),
+      })
+      const answered = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('ask-answered'),
+        name: 'ask_user_question',
+        arguments: { questions: scopeQuestion },
+        agent,
+      })
+      disposeAnswerer()
+      const afterReset = await expireUnanswered(ctx, agent, 'ask-after-reset', scopeQuestion)
+      const afterSecondExpiry = await expireUnanswered(ctx, agent, 'ask-after-second-expiry', scopeQuestion)
+
+      expect(renderedPayload(expired)).toMatchObject({ pending: true, callId: 'ask-expired' })
+      expect(renderedPayload(answered)).toMatchObject({ answers: [{ id: 'scope', selected: ['This package'] }] })
+      // The answered question ended the count, so this one expires as the first
+      // of a new run instead of answering with the recommended option.
+      expect(renderedPayload(afterReset)).toMatchObject({ pending: true, callId: 'ask-after-reset' })
+      expect(renderedPayload(afterSecondExpiry)).toMatchObject({
+        answers: [{ id: 'scope', selected: ['Whole workspace (Recommended)'] }],
+        autoAnswered: { consecutiveTimeouts: 2 },
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends the run when the user answers a continued question later', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-late-reply', 2)
+
+      const expired = await expireUnanswered(ctx, agent, 'ask-late-1', scopeQuestion)
+      const reply = agent.session.append('user/message', createUserMessage({
+        source: { kind: 'user-question-reply', callId: ToolCallId('ask-late-1'), outcome: 'answered' },
+        content: [{ type: 'text', text: '{"kind":"answer_to_pending_question"}' }],
+      }), { surfaceOp: 'append' })
+      ctx.emit('session/event', agent.session, reply)
+      const afterLateReply = await expireUnanswered(ctx, agent, 'ask-late-2', scopeQuestion)
+
+      expect(renderedPayload(expired)).toMatchObject({ pending: true, callId: 'ask-late-1' })
+      expect(renderedPayload(afterLateReply)).toMatchObject({ pending: true, callId: 'ask-late-2' })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps another Session\'s replies and events from resetting a tracked run', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, agent } = await fallbackContext('fallback-isolated', 2)
+      const other = stubAgent('fallback-other')
+      ctx.agents.enter(other, undefined)
+
+      const first = await expireUnanswered(ctx, agent, 'ask-isolated-1', scopeQuestion)
+      // None of these belong to the tracked Session's run: a reply naming a
+      // question that Session never asked, a plain user message, and an
+      // unrelated event type.
+      ctx.emit('session/event', other.session, other.session.append('user/message', createUserMessage({
+        source: { kind: 'user-question-reply', callId: ToolCallId('ask-other'), outcome: 'answered' },
+        content: [{ type: 'text', text: '{"kind":"answer_to_pending_question"}' }],
+      }), { surfaceOp: 'append' }))
+      ctx.emit('session/event', other.session, other.session.append('user/message', createUserMessage({
+        source: { kind: 'user' },
+        content: [{ type: 'text', text: 'hello' }],
+      }), { surfaceOp: 'append' }))
+      ctx.emit('session/event', other.session, other.session.append('turn/start', { turn: 1 }))
+
+      const second = await expireUnanswered(ctx, agent, 'ask-isolated-2', scopeQuestion)
+
+      expect(renderedPayload(first)).toMatchObject({ pending: true, callId: 'ask-isolated-1' })
+      // The run kept counting through those events, so the second expiry is the
+      // one that reaches the threshold.
+      expect(renderedPayload(second)).toMatchObject({
+        answers: [{ id: 'scope', selected: ['Whole workspace (Recommended)'] }],
+        autoAnswered: { consecutiveTimeouts: 2 },
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('declares the automatic answer to the model only under the policy', async () => {
+    const withPolicy = await setup({ mode: 'timed', autoAnswerAfterTimeouts: 3 })
+    const withoutPolicy = await setup({ mode: 'timed' })
+    const schemaOf = (ctx: Context): string =>
+      JSON.stringify(ctx.tools.schemas().find(tool => tool.name === 'ask_user_question'))
+    // The output schema rides the definition, not the model-facing parameters.
+    const definitionOf = (ctx: Context): string => JSON.stringify(ctx.tools.get('ask_user_question'))
+
+    expect(schemaOf(withPolicy)).toContain('a recommended option can be selected automatically')
+    expect(definitionOf(withPolicy)).toContain('autoAnswered')
+    expect(schemaOf(withoutPolicy)).not.toContain('selected automatically')
+    expect(definitionOf(withoutPolicy)).not.toContain('autoAnswered')
+
+    await withPolicy.fiber.dispose()
+    await withoutPolicy.fiber.dispose()
+  })
+
+  it('rejects a fallback that could never fire', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(UserQuestionService)
+
+    expect(() => { toolAskUser.apply(ctx, { autoAnswerAfterTimeouts: 3 }) })
+      .toThrow(/requires mode: timed/)
+    expect(() => { toolAskUser.apply(ctx, { mode: 'timed', timeout: -1, autoAnswerAfterTimeouts: 3 }) })
+      .toThrow(/finite timeout on the tool-ask-user row/)
+    expect(() => { toolAskUser.apply(ctx, { mode: 'timed', autoAnswerAfterTimeouts: 0 }) })
+      .toThrow(/positive integer/)
   })
 })

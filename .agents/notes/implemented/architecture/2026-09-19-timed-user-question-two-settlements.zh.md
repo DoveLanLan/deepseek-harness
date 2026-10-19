@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-前台回答继续使用现有 Remote Event waterfall。超时结束该请求并返回 pending；迟到回答通过业务 RPC steer 一条持久用户消息。接手 stream 只控制前台等待，既不传递回答，也不替代 Remote Event。
+前台回答继续使用现有 Remote Event waterfall。超时结束该请求并返回 pending，除非调用方提供了 deadline answer；迟到回答通过业务 RPC steer 一条持久用户消息。接手 stream 只控制前台等待，既不传递回答，也不替代 Remote Event。
 
 ### 模式与范围
 
@@ -42,7 +42,7 @@ Status: implemented
 
 Client 将接手保留到 waterfall 结果交付给 Host。本地返回回答不等于交付：此时释放接手会让已经到期的 Host 计时器抢在回答之前结算。Host 在前台请求结算时关闭接手。显式委托在 `next()` 前释放接手；插件拆卸会委托请求并取消自己的 stream。
 
-Client 倒计时到期以 `ASK_TIMED_OUT` 拒绝 waterfall。无人接手时，Host 到期只以同一业务错误中止等待专属 signal。`askTimed()` 只把该错误映射为 pending，把父级取消映射为 `ASK_ABORTED`，其余失败继续传播。`NO_PROVIDER` 等待同一个有界等待生命周期，而不是永不结算的 Promise。前台完成时释放计时器、接手记录及等待注册项。
+Client 倒计时到期以 `ASK_TIMED_OUT` 拒绝 waterfall。无人接手时，Host 到期只以同一业务错误中止等待专属 signal。`askTimed()` 把该错误映射为 pending，或映射为可选 deadline answer 策略对未声明 intent 的问题返回的答案，把父级取消映射为 `ASK_ABORTED`，其余失败继续传播。`NO_PROVIDER` 等待同一个有界等待生命周期，而不是永不结算的 Promise。前台完成时释放计时器、接手记录及等待注册项。
 
 ### 持久状态与迟到回答
 
@@ -98,7 +98,7 @@ Client 计算 `Date.now() + remainingMs`。手动聚焦未编辑的回答区会�
 
 ## 验证
 
-- [服务测试](../../../../packages/interaction/user-questions/tests/user-questions.spec.ts)与[等待测试](../../../../packages/interaction/user-questions/tests/timed-wait.spec.ts)覆盖有人与无人接手、最后接手方断开、取消、超时错误映射、仅接受已继续问题的回答，以及答案 id 的精确校验。
+- [服务测试](../../../../packages/interaction/user-questions/tests/user-questions.spec.ts)与[等待测试](../../../../packages/interaction/user-questions/tests/timed-wait.spec.ts)覆盖有人与无人接手、最后接手方断开、取消、超时错误映射、deadline answer 结算、仅接受已继续问题的回答，以及答案 id 的精确校验。
 - [投影测试](../../../../packages/interaction/user-questions/tests/projection.spec.ts)区分 legacy 与 timed schema，并覆盖原生及 PTC pending 调用、其他失败、恢复修复、排队回复取消和准入后结算。
 - [Client 监听器测试](../../../../packages/client/ui-user-questions/tests/browser-plugin.client.spec.ts)与[composer 测试](../../../../packages/client/ui-user-questions/tests/user-questions-composer.client.spec.tsx)覆盖接手保留到 Host 接受结果、握手前聚焦、无限期等待、草稿保留、RPC 重提及面板操作。
 - [分组测试](../../../../packages/client/ui-chat/tests/process-groups.client.spec.ts)与[浏览器回放](../../../../apps/web/tests/question-composer.e2e.ts)覆盖普通折叠位置、折叠控件顺序，以及原工具行的迟到答案只读面板。
