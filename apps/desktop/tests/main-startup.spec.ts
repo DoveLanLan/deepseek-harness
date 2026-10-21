@@ -995,7 +995,7 @@ describe('desktop main startup', () => {
     await edit
   })
 
-  it.each(['darwin', 'linux'] as const)('adds the product File menu and standard window commands only on macOS (%s)', async (platform) => {
+  it.each(['darwin', 'linux'] as const)('adds the product File, View, and window commands only on macOS (%s)', async (platform) => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
     await import('../src/main.ts')
     await harness.preparing.promise
@@ -1006,13 +1006,30 @@ describe('desktop main startup', () => {
       .find(items => items.some(item => item.role === 'editMenu'))
     if (template === undefined) throw new Error('application menu missing')
     expect(template.map(describeItem)).toEqual(platform === 'darwin'
-      ? ['Desktop test', en.fileMenu, 'editMenu', 'windowMenu']
+      ? ['Desktop test', en.fileMenu, 'editMenu', en.viewMenu, 'windowMenu']
       : ['Application', 'editMenu'])
     const application = template[0]!.submenu as MenuItemConstructorOptions[]
     expect(application.filter(item => item.visible !== false).map(describeItem)).toEqual(platform === 'darwin'
       ? ['about', 'separator', en.checkUpdatesMenu, en.cliCommandMenu, 'separator', 'hide', 'hideOthers', 'unhide', 'separator', 'quit']
       : ['about', 'separator', en.checkUpdatesMenu, 'separator', 'quit'])
     expect(harness.menu.setApplicationMenu).toHaveBeenCalledOnce()
+  })
+
+  it.each(['en-US', 'zh-CN'] as const)('binds macOS native full screen in the localized View menu (%s)', async (systemLocale) => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    vi.spyOn(harness.app, 'getLocale').mockReturnValue(systemLocale)
+    vi.spyOn(harness.app, 'getPreferredSystemLanguages').mockReturnValue([systemLocale])
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const messages = systemLocale === 'zh-CN' ? zh : en
+    const template = harness.menu.buildFromTemplate.mock.calls
+      .map(call => call[0])
+      .filter(items => items.some(item => item.role === 'editMenu'))
+      .at(-1)
+    const view = template?.find(item => item.label === messages.viewMenu)
+    expect(view?.submenu).toEqual([{
+      role: 'togglefullscreen', label: messages.toggleFullScreen, accelerator: 'Control+Command+F',
+    }])
   })
 
   it.each(['en-US', 'zh-CN'])('localizes macOS application commands without changing the application name (%s)', async (locale) => {

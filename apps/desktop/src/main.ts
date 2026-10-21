@@ -943,9 +943,21 @@ async function main(): Promise<void> {
   // its standard menus and application hide commands declared explicitly.
   // Keep app.name stable: Electron derives its default userData directory from it.
   const darwin = process.platform === 'darwin'
-  const platformMenus = (): MenuItemConstructorOptions[] => darwin
-    ? [shortcuts.fileMenu(currentDesktopLocale().messages), { role: 'editMenu' }, { role: 'windowMenu' }]
-    : [{ role: 'editMenu' }]
+  const platformMenus = (): MenuItemConstructorOptions[] => {
+    const { messages } = currentDesktopLocale()
+    return darwin
+      ? [
+        shortcuts.fileMenu(messages),
+        { role: 'editMenu' },
+        // This custom menu replaces Electron's default one, so macOS's native
+        // full-screen key equivalent needs its own item.
+        { label: messages.viewMenu, submenu: [{
+          role: 'togglefullscreen', label: messages.toggleFullScreen, accelerator: 'Control+Command+F',
+        }] },
+        { role: 'windowMenu' },
+      ]
+      : [{ role: 'editMenu' }]
+  }
   const hideCommands: MenuItemConstructorOptions[] = darwin
     ? [{ role: 'hide', label: currentDesktopLocale().messages.hideApplication },
       { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
