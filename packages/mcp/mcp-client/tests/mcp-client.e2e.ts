@@ -554,3 +554,61 @@ describe('streamable-http — in-process MCP server', () => {
     for (const auth of seenAuth) expect(auth).toBe('Bearer e2e-test-token')
   })
 })
+
+describe('startup bounds — real handshake timeout', () => {
+  it('fails the initialization handshake within connectTimeoutMs when the server never answers', async () => {
+    const ctx = await mountRegistry()
+    const started = Date.now()
+    await expect(apply(ctx, {
+      transport: 'stdio',
+      serverName: 'silent',
+      command: process.execPath,
+      args: ['-e', 'process.stdin.resume()'],
+      env: {},
+      cwd: packageDir,
+      toolCallTimeoutMs: 15_000,
+      connectTimeoutMs: 500,
+      failOnStartupError: true,
+      reconnect: { enabled: false },
+    })).rejects.toThrow(/initial connection or tool synchronization failed/)
+    // The configured bound, not the SDK's 60 s request default, ended the attempt.
+    expect(Date.now() - started).toBeLessThan(10_000)
+    expect(ctx.tools.schemas()).toEqual([])
+    await ctx.fiber.dispose()
+    await sleep(200)
+  }, 30_000)
+})
+
+/** Launches the fixture server after a delay so activation policy is observable. */
+const SLOW_FIXTURE_SCRIPT = `
+setTimeout(() => {
+  const { spawn } = require('node:child_process')
+  const child = spawn(process.execPath, [process.argv[1]], { stdio: 'inherit' })
+  child.on('exit', (code) => process.exit(code ?? 0))
+}, 2_000)
+`
+
+describe('startup bounds — background activation', () => {
+  it('resolves before a slow server answers and registers its tools afterwards', async () => {
+    const ctx = await mountRegistry()
+    const started = Date.now()
+    await apply(ctx, {
+      transport: 'stdio',
+      serverName: 'slow',
+      command: process.execPath,
+      args: ['-e', SLOW_FIXTURE_SCRIPT, fixtureServerPath],
+      env: {},
+      cwd: packageDir,
+      toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
+      startup: 'background',
+    })
+    // The 2 s server delay is still pending: activation did not wait for it.
+    expect(Date.now() - started).toBeLessThan(1_500)
+    expect(ctx.tools.get('mcp__slow__add')).toBeUndefined()
+
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__slow__add')).toBeDefined() }, { timeout: 20_000 })
+    await ctx.fiber.dispose()
+    await sleep(200)
+  }, 30_000)
+})

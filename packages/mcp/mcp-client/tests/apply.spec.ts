@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // ---- Mock MCP SDK ----
@@ -134,6 +135,24 @@ describe('mcp-client plugin module exports', () => {
       reconnect: { initialDelayMs: 100 },
     } as never)
     expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 10 })
+  })
+
+  it('Config schema defaults the activation policy and the handshake bound', () => {
+    const resolved = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+    } as never)
+    expect(resolved.startup).toBe('await')
+    expect(resolved.connectTimeoutMs).toBe(60_000)
+  })
+
+  it('Config schema rejects an unsupported activation policy or handshake bound', () => {
+    const base = { transport: 'stdio', serverName: 'srv', command: 'echo' }
+    expect(() => ConfigSchema({ ...base, startup: 'later' } as never)).toThrow()
+    for (const connectTimeoutMs of [0, -1, 1.5, MAX_TIMER_DELAY_MS + 1]) {
+      expect(() => ConfigSchema({ ...base, connectTimeoutMs } as never)).toThrow()
+    }
   })
 
   it('Config schema rejects an invalid reconnect block', () => {
@@ -426,6 +445,53 @@ describe('apply (plugin lifecycle)', () => {
     await sleep(50)
 
     expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('bounds the initialization handshake with the configured connectTimeoutMs', async () => {
+    await apply(ctx, { ...stdioConfig, connectTimeoutMs: 1_500 })
+    expect(mockConnect).toHaveBeenCalledWith(expect.anything(), { timeout: 1_500 })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects an out-of-range handshake bound from programmatic construction', async () => {
+    await expect(apply(ctx, { ...stdioConfig, connectTimeoutMs: 0 }))
+      .rejects.toThrow(/connectTimeoutMs must be a positive integer/)
+    expect(mockConnect).not.toHaveBeenCalled()
+  })
+
+  it('activates in the background and publishes tools when the handshake settles', async () => {
+    const handshake: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockImplementation(() => handshake.promise)
+    const fiber = ctx.plugin({ name: 'mcp-client-background', inject, apply }, { ...stdioConfig, startup: 'background' })
+    await fiber
+
+    expect(mockConnect).toHaveBeenCalledTimes(1)
+    expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+
+    handshake.resolve()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+    await fiber.dispose()
+  })
+
+  it('does not reject background activation when the initial connection fails', async () => {
+    mockConnect.mockRejectedValue(new Error('connection refused'))
+    const warned = vi.spyOn(ctx.logger, 'warn')
+    await apply(ctx, { ...stdioConfig, startup: 'background', reconnect: { enabled: false } })
+    await vi.waitFor(() => { expect(warned).toHaveBeenCalledWith(expect.stringContaining('connection refused')) })
+    expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects background activation combined with failOnStartupError at load', async () => {
+    await expect(apply(ctx, { ...stdioConfig, startup: 'background', failOnStartupError: true }))
+      .rejects.toThrow(/failOnStartupError requires startup "await"/)
+    expect(mockConnect).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unsupported activation policy from programmatic construction', async () => {
+    await expect(apply(ctx, { ...stdioConfig, startup: 'later' as never }))
+      .rejects.toThrow(/startup must be one of await, background/)
+    expect(mockConnect).not.toHaveBeenCalled()
   })
 
   it('uses streamable-http config path', async () => {

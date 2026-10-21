@@ -17,7 +17,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_MAX_INSTRUCTION_BYTES,
+  RECONNECT_DEFAULTS,
+  resolveReconnectPolicy,
+  startConnection,
+} from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
@@ -35,6 +41,29 @@ export const inject = ['tools']
 
 /** Default timeout for individual MCP tool calls and resource requests (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
+
+/** Whether plugin activation waits for the server's first connection. */
+export type StartupMode = 'await' | 'background'
+
+/** Supported activation policies, in documentation order. */
+const STARTUP_MODES: readonly StartupMode[] = ['await', 'background']
+
+/**
+ * The one explicit resolve step from raw activation policy to the policy the
+ * plugin applies. Programmatic construction may bypass Schemastery
+ * normalization, so an unsupported value fails THIS instance at load.
+ *
+ * @param startup - Raw `startup` config; omission uses `await`.
+ * @param path - Diagnostic prefix naming the config location in thrown messages.
+ * @returns The activation policy this instance runs.
+ */
+export function resolveStartupMode(startup: StartupMode | undefined, path: string): StartupMode {
+  if (startup === undefined) return 'await'
+  if (!STARTUP_MODES.includes(startup)) {
+    throw new Error(`${path}.startup must be one of ${STARTUP_MODES.join(', ')}`)
+  }
+  return startup
+}
 
 /** Valid `serverName`, kept below the public tool-name budget. */
 const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
@@ -68,8 +97,16 @@ export interface StdioConfig {
   cwd: string
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /** Timeout for the MCP initialization handshake in milliseconds (default 60000). */
+  connectTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * Activation policy: `await` publishes the server's tools before the fiber
+   * activates; `background` activates immediately and registers the tools when
+   * the first connection attempt settles (default `await`).
+   */
+  startup?: StartupMode
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -92,8 +129,16 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /** Timeout for the MCP initialization handshake in milliseconds (default 60000). */
+  connectTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * Activation policy: `await` publishes the server's tools before the fiber
+   * activates; `background` activates immediately and registers the tools when
+   * the first connection attempt settles (default `await`).
+   */
+  startup?: StartupMode
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -125,7 +170,9 @@ export const Config = z.union([
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    connectTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_CONNECT_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    startup: z.union([z.const('await'), z.const('background')]).default('await'),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
@@ -135,7 +182,9 @@ export const Config = z.union([
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    connectTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_CONNECT_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
+    startup: z.union([z.const('await'), z.const('background')]).default('await'),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
   }),
@@ -144,17 +193,28 @@ export const Config = z.union([
 // ---- Plugin apply ----
 
 /**
- * Connect one MCP server and publish its initial tool generation before activation.
+ * Connect one MCP server and publish its tool generation according to the
+ * configured activation policy.
+ *
  * This entry remains explicitly `async`: Cordis treats a prototype-bearing
  * ordinary function as a constructor, whose returned Promise is not startup work.
+ *
  * @param ctx - plugin context carrying the tool registry.
- * @param config - resolved transport and server namespace configuration.
- * @returns startup readiness after connection and initial tool discovery settle.
+ * @param config - resolved transport, namespace, activation, and timeout configuration.
+ * @returns startup readiness after connection and initial tool discovery settle;
+ * `background` activation resolves once the connection effects are owned.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Fail loud at load: reconnect misconfiguration (including programmatic
+  // Fail loud at load: strict startup needs the blocking policy to report a
+  // failure, and reconnect misconfiguration (including programmatic
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
+  const startup = resolveStartupMode(config.startup, `mcp-client(${config.serverName})`)
+  if (startup === 'background' && config.failOnStartupError) {
+    throw new Error(
+      `mcp-client(${config.serverName}): failOnStartupError requires startup "await" — background activation reports the initial failure only through the log`,
+    )
+  }
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
@@ -191,11 +251,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }, { global: true })
   ctx.effect(() => dispose, 'mcp-client.connection')
 
-  // Block plugin activation on the initial connection + tool discovery so
-  // Cordis consumers observe the tools immediately after the fiber activates.
-  // When failOnStartupError is true, a failed initial attempt rejects the
-  // fiber (Cordis rolls it back); otherwise the error is logged and the
-  // supervisor enters its reconnect loop.
+  // Activation policy. `background` returns now and lets the supervisor
+  // publish the tools when the first attempt settles, so an unreachable or
+  // slow server cannot hold application startup; failures and retries reach
+  // the log, never the fiber.
+  if (startup === 'background') {
+    ctx.logger.info(`mcp-client(${config.serverName}): activation does not wait for the initial connection; tools register when the server responds`)
+    // `ready` never rejects; the supervisor owns failure reporting.
+    void connection.ready
+    return
+  }
+  // `await` keeps plugin activation on the initial connection + tool discovery
+  // so Cordis consumers observe the tools immediately after the fiber
+  // activates. When failOnStartupError is true, a failed initial attempt
+  // rejects the fiber (Cordis rolls it back); otherwise the error is logged
+  // and the supervisor enters its reconnect loop.
   const outcome = await connection.ready
   if (outcome.error !== undefined && config.failOnStartupError) {
     throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })

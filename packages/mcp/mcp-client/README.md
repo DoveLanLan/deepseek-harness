@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text; MCP prompt templates are unsupported. Slow or crashed servers can delay startup or fail calls until recovery.
+`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text; MCP prompt templates are unsupported. A slow or crashed server can delay startup or fail calls until recovery; `startup: background` keeps that server off the startup path and `connectTimeoutMs` bounds its initialization handshake.
 
 ## Table of Contents
 
@@ -60,7 +60,9 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
-| `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
+| `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails; requires `startup: await` |
+| `connectTimeoutMs` | `60,000` | Timeout for the MCP initialization handshake; a server that misses it fails the attempt and enters the reconnect policy |
+| `startup` | `await` | `await` publishes the server's tools before plugin activation; `background` activates immediately and registers them when the server responds |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
 | `reconnect.maxDelayMs` | `30,000` | Backoff ceiling; also the uptime after which the attempt budget resets |
@@ -88,7 +90,9 @@ Images are supported when the current model accepts image input and the harness 
 
 ### Startup, updates, and reconnection
 
-The server's tools appear before the harness starts its first turn. When the server changes its tool list, the model's tool set updates automatically; if the update fails, the previous tool set keeps working.
+Under the default `startup: await`, the server's tools appear before the harness starts its first turn. With `startup: background`, plugin activation returns immediately and the tools appear as soon as the server answers, so a turn that starts inside that window does not see them yet; `background` cannot be combined with `failOnStartupError: true` because no activation remains to fail, and the initial failure is logged instead. Each connection attempt bounds its initialization handshake with `connectTimeoutMs` before falling into the reconnect policy.
+
+When the server changes its tool list, the model's tool set updates automatically; if the update fails, the previous tool set keeps working.
 
 When a server connection drops — for example a local server process crashes — the plugin reconnects automatically with delays that double from 500 ms up to 30 s and then refreshes the tool set; reconnect progress is visible in the logs. During an outage the last known tools stay listed but calls to them fail until the server recovers. After ten consecutive failed attempts the server's tools are removed and reconnection stops until you reload the configuration or restart the harness; a server that stays connected for a while resets that counter. Set `reconnect.enabled: false` to disable automatic reconnection — tools then stay listed but fail until you reload. Editing the configuration entry reloads the server connection in place, and unchanged names stay unchanged.
 
@@ -124,7 +128,7 @@ The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool sch
 
 ### Lifecycle and sync
 
-`apply` resolves the reconnect policy, reserves the `serverName` inside the current registration scope, starts the supervisor, and awaits the initial connection plus discovery. Independent Agent scopes may reuse the same namespace because their tools and transports are isolated; a duplicate inside one scope fails at load. The supervisor serializes every sync — initial, notification, and reconnect — through one queue so two syncs can never interleave their dispose-previous/register-next swap. Disposal cancels pending reconnects, closes the negotiating transport or attached client, waits for the in-flight attempt and queued syncs to quiesce, and unregisters the current generation.
+`apply` resolves the reconnect policy and the activation policy, reserves the `serverName` inside the current registration scope, and starts the supervisor; under `startup: await` it then awaits the initial connection plus discovery, while `background` returns with the connection effects owned. Each attempt bounds its initialization handshake with the resolved `connectTimeoutMs`. Independent Agent scopes may reuse the same namespace because their tools and transports are isolated; a duplicate inside one scope fails at load. The supervisor serializes every sync — initial, notification, and reconnect — through one queue so two syncs can never interleave their dispose-previous/register-next swap. Disposal cancels pending reconnects, closes the negotiating transport or attached client, waits for the in-flight attempt and queued syncs to quiesce, and unregisters the current generation.
 
 The SDK receives tool-list changes through legacy notifications or a modern subscription. The supervisor queues each re-sync; a fetch failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
 
@@ -206,7 +210,7 @@ Unchanged instructions retain identical prompt text. Updated or removed instruct
 These limits describe what you cannot do with this plugin and when it needs operational attention. They are current package constraints, not a comparison with other MCP clients or a task backlog.
 
 - **Resources are read on demand** — shipped profiles provide the [shared resource service](../mcp-resources/README.md); resource subscriptions and MCP prompt templates are unsupported.
-- **Startup and discovery timeouts are inherited from the MCP SDK** — the plugin exposes no separate connection or discovery timeout. Negotiation and discovery use the SDK's 60-second request default; discovery also uses its page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
+- **Only the initialization handshake has a plugin-level timeout** — `connectTimeoutMs` bounds each handshake. The initial and re-sync tool discovery still use the SDK's 60-second request default, and discovery also uses its page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
 - **Reconnect handles failed negotiation and transport close** — a failed initial probe or crashed stdio child uses the configured reconnect budget. Once HTTP is connected, request failures use the SDK transport's recovery rather than respawning the connection.
 - **Image is the only durable rich-result bridge** — PNG, JPEG, WebP, and GIF enter Native context after exact capability proof. Audio and embedded-resource payloads remain execution-local with explicit diagnostics, while resource links preserve only their name and URI as text.
 - **Invalid protocol results or output schemas fail through the SDK** — the bridge does not accept legacy `toolResult` substitutes or bypass advertised schema validation.
@@ -221,7 +225,7 @@ These limits describe what you cannot do with this plugin and when it needs oper
 This Dev Note is working context for maintainers: open design questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
 - The public-name algorithm is a v1 contract pinned by tests; changing it after release would break session history and permission rules.
-- An explicit DSH-owned connection and discovery timeout is an open direction; the SDK's 60-second default bounds startup requests.
+- The initialization handshake timeout is DSH-owned (`connectTimeoutMs`); tool discovery still uses the SDK's 60-second request default, and an explicit discovery timeout remains open.
 - Reconnect ownership for Streamable HTTP is open: per-request retry is SDK behavior, and the supervisor could also own the HTTP generation.
 - MCP prompt templates need a separate user-selection and invocation mechanism.
 - The pinned MCP SDK is still evolving; a breaking upstream change requires updating the bridge.

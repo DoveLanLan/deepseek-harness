@@ -2191,7 +2191,7 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:149`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2217,8 +2217,16 @@ export interface StdioConfig {
   cwd: string
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /** Timeout for the MCP initialization handshake in milliseconds (default 60000). */
+  connectTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * Activation policy: `await` publishes the server's tools before the fiber
+   * activates; `background` activates immediately and registers the tools when
+   * the first connection attempt settles (default `await`).
+   */
+  startup?: StartupMode
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -2241,13 +2249,24 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
+  /** Timeout for the MCP initialization handshake in milliseconds (default 60000). */
+  connectTimeoutMs?: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
+  /**
+   * Activation policy: `await` publishes the server's tools before the fiber
+   * activates; `background` activates immediately and registers the tools when
+   * the first connection attempt settles (default `await`).
+   */
+  startup?: StartupMode
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
+
+/** Whether plugin activation waits for the server's first connection. */
+export type StartupMode = 'await' | 'background'
 
 /** Automatic reconnect policy for one MCP server connection. */
 export interface ReconnectConfig {

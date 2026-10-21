@@ -48,6 +48,30 @@ export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 
+/**
+ * Default bound for the MCP initialization handshake (ms). Matches the SDK's
+ * request default, which every attempt inherited while the bridge had no
+ * plugin-level bound.
+ */
+export const DEFAULT_CONNECT_TIMEOUT_MS = 60_000
+
+/**
+ * The one explicit resolve step from raw `connectTimeoutMs` to the bound each
+ * attempt applies. Programmatic construction may bypass Schemastery
+ * normalization, so an unsupported value fails the plugin instance at load.
+ *
+ * @param connectTimeoutMs - Raw handshake timeout; omission uses the default.
+ * @param path - Diagnostic prefix naming the config location in thrown messages.
+ * @returns The validated handshake timeout in milliseconds.
+ */
+export function resolveConnectTimeoutMs(connectTimeoutMs: number | undefined, path: string): number {
+  if (connectTimeoutMs === undefined) return DEFAULT_CONNECT_TIMEOUT_MS
+  if (!Number.isInteger(connectTimeoutMs) || connectTimeoutMs < 1 || connectTimeoutMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`${path}.connectTimeoutMs must be a positive integer no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
+  return connectTimeoutMs
+}
+
 // The SDK's stdio transport owns two two-second termination grace periods.
 // Keep one additional second for the process-close event that proves the old
 // generation is gone; timing out fails closed instead of overlapping children.
@@ -120,12 +144,13 @@ export interface ConnectionHandle extends ServerContext {
  * the reconnect policy.
  *
  * @param ctx - Cordis context providing the `tools` registry and logger.
- * @param config - Resolved plugin config selecting the transport and server identity.
+ * @param config - Resolved plugin config selecting the transport, server identity, and handshake timeout.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
 export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
+  const connectTimeoutMs = resolveConnectTimeoutMs(config.connectTimeoutMs, label)
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
@@ -246,9 +271,10 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   /**
    * One connection attempt: fresh transport + client (the MCP SDK binds a
-   * Protocol to one transport for life), connect, then queue the initial tool
-   * sync. The startup flag belongs to the attempt rather than the shared sync
-   * queue, so an early notification cannot consume strict startup semantics.
+   * Protocol to one transport for life), connect under the plugin's
+   * `connectTimeoutMs` handshake bound, then queue the initial tool sync. The
+   * startup flag belongs to the attempt rather than the shared sync queue, so
+   * an early notification cannot consume strict startup semantics.
    * Every failure funnels through {@link generationDown}; success arms the
    * onclose-driven disconnect path. Never rejects.
    *
@@ -305,7 +331,10 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     let instructions: string
     try {
       transport = createTransport(config)
-      await generation.connect(transport)
+      // Bound the initialization handshake per attempt: the SDK raises its
+      // RequestTimeout error instead of waiting out the default window, and
+      // the failure flows through the ordinary reconnect path.
+      await generation.connect(transport, { timeout: connectTimeoutMs })
       if (hasClosed()) {
         attemptSettled = true
         generationDown(generation)
